@@ -1,6 +1,6 @@
 # Implementation contract
 
-Implement the PRD as an executable modular monolith. Python FastAPI, SQLite WAL for single-process development, React TypeScript Vite. A Docker runner is the default; trusted local execution requires explicit configuration. Never manufacture engine results when credentials or binaries are missing.
+Implement the PRD as an executable modular monolith. Python FastAPI, SQLite WAL for single-process development, React TypeScript Vite. Execution defaults to disabled; Docker is the preferred explicitly enabled runner and trusted local execution requires explicit configuration. Never manufacture engine results when credentials or binaries are missing.
 
 ## Runtime module (backend/workbench/runtime.py)
 

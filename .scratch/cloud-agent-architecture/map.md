@@ -9,6 +9,8 @@ Labels: wayfinder:map
 
 ## Notes
 
+- 2026-11-03 后续授权：用户已要求开始实现。以下“暂不实现/单轮一张票”描述保留为前期探索记录，不再阻止已授权编码。当前实现与边界见 [实现状态](../../docs/implementation-status.md) 和 [实现工单](../workbench-implementation/spec.md)。
+
 - 建图与两项基础研究已完成，后续按依赖推进决策；暂不实现平台，不代替用户回答 HITL 决策。
 - 依据：[PRD](../../docs/PRD.md)、[领域词汇表](../../GLOSSARY.md)、[调研索引](../../docs/research/README.md)。旧技术方案是历史候选，不能当作已批准架构。
 - 已确认：平台云端执行、长期项目、多任务、自由/需求开发双模式、阶段 Skill、人工参与、工具扩展、个性化与项目记忆、持久协作者与临时子 Agent。

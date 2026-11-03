@@ -92,6 +92,7 @@ aside > button {
   color: #64715f;
 }
 .asidebottom button {
+  display: block;
   margin-top: 15px;
   max-width: 100%;
   font-size: 11px;

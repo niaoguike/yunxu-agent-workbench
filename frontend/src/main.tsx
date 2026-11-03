@@ -44,12 +44,14 @@ const status: Row = {
   interrupted: "已停止",
   waiting_gate: "等待阶段确认",
   waiting_approval: "等待授权",
+  paused: "已暂停，检查工作区后补充消息继续",
 };
 function App() {
   const [user, U] = S<Row | null>(null),
     [ready, R] = S(false),
     [error, Err] = S(""),
     [projects, P] = S<Row[]>([]),
+    [trash, TR] = S<Row[]>([]),
     [project, PP] = S<Row | null>(null),
     [tasks, T] = S<Row[]>([]),
     [task, TT] = S<Row | null>(null),
@@ -202,9 +204,21 @@ function App() {
         await loadProjects();
         PP(p);
       } else if (modal === "任务") {
-        const t = await api(`/projects/${project!.id}/tasks`, "POST", d);
+        const t = await api(`/projects/${project!.id}/tasks`, "POST", {
+          ...d,
+          require_acceptance: d.require_acceptance === "on",
+        });
         await loadTasks();
         TT(t);
+      } else if (modal === "任务设置") {
+        await api(`/tasks/${task!.id}`, "PATCH", {
+          ...d,
+          require_acceptance: d.require_acceptance === "on",
+        });
+        await refresh();
+      } else if (modal === "个人指令") {
+        await api("/auth/me", "PATCH", d);
+        U(await api("/auth/me"));
       } else if (modal === "记忆")
         await api(`/projects/${project!.id}/memories`, "POST", d);
       else if (modal === "扩展")
@@ -250,6 +264,21 @@ function App() {
           </button>
         ))}
         <div className="asidebottom">
+          {user && (
+            <>
+              <button onClick={() => M("个人指令")}>个人长期指令</button>
+              <button
+                onClick={() =>
+                  act(async () => {
+                    TR(await api("/trash"));
+                    M("回收区");
+                  })
+                }
+              >
+                回收区
+              </button>
+            </>
+          )}
           <span className="dot" />
           持久云端工作空间
           <br />
@@ -281,6 +310,22 @@ function App() {
             {project && (
               <>
                 <button onClick={() => M("设置")}>项目设置</button>
+                {task && (
+                  <button onClick={() => M("任务设置")}>任务设置</button>
+                )}
+                <button
+                  onClick={() => {
+                    if (confirm("将项目移入回收区？执行会停止，文件仍保留。"))
+                      act(async () => {
+                        await api(`/projects/${project.id}`, "DELETE");
+                        PP(null);
+                        TT(null);
+                        await loadProjects();
+                      });
+                  }}
+                >
+                  移入回收区
+                </button>
                 <button className="primary" onClick={() => M("任务")}>
                   ＋ 新任务
                 </button>
@@ -325,7 +370,7 @@ function App() {
               {engines.map((e) => (
                 <article key={e.engine}>
                   <b>{e.engine}</b>
-                  <p>{e.available ? "● 已就绪" : "○ 未就绪"}</p>
+                  <p>{e.available ? "● 环境可用，认证待验证" : "○ 未就绪"}</p>
                   <small>{e.reason}</small>
                 </article>
               ))}
@@ -385,7 +430,9 @@ function App() {
                   )}
                   <div className="messages">
                     {task.pending_inputs
-                      ?.filter((q: Row) => q.status !== "dispatched")
+                      ?.filter((q: Row) =>
+                        ["queued", "paused"].includes(q.status),
+                      )
                       .map((q: Row) => (
                         <article className="gate" key={q.id}>
                           <b>
@@ -394,6 +441,38 @@ function App() {
                               : "待执行补充"}
                           </b>
                           <p>{q.content}</p>
+                          <button
+                            onClick={() => {
+                              const content = prompt(
+                                "修改尚未执行的消息",
+                                q.content,
+                              );
+                              if (content)
+                                act(async () => {
+                                  await api(
+                                    `/tasks/${task.id}/inputs/${q.id}`,
+                                    "PATCH",
+                                    { content },
+                                  );
+                                  await refresh();
+                                });
+                            }}
+                          >
+                            编辑补充
+                          </button>
+                          <button
+                            onClick={() =>
+                              act(async () => {
+                                await api(
+                                  `/tasks/${task.id}/inputs/${q.id}`,
+                                  "DELETE",
+                                );
+                                await refresh();
+                              })
+                            }
+                          >
+                            撤回补充
+                          </button>
                           {q.status === "paused" && (
                             <button
                               onClick={() =>
@@ -418,8 +497,46 @@ function App() {
                         <a href={`/api/artifacts/${a.id}`} download>
                           下载成果 ↓
                         </a>
+                        <button
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `用此历史文件覆盖 ${a.path}？仅恢复该文件。`,
+                              )
+                            )
+                              act(async () => {
+                                await api(
+                                  `/artifacts/${a.id}/restore`,
+                                  "POST",
+                                  { path: a.path },
+                                );
+                                await refresh();
+                                await loadItems();
+                              });
+                          }}
+                        >
+                          恢复此文件
+                        </button>
                       </article>
                     ))}
+                    {task.checks?.length > 0 && (
+                      <details>
+                        <summary>交付检查记录（{task.checks.length}）</summary>
+                        {task.checks.map((c: Row) => (
+                          <article className="event" key={c.id}>
+                            <b>
+                              {c.name} · {c.status}
+                            </b>
+                            <small>
+                              {c.source === "platform"
+                                ? "平台文件核验"
+                                : "执行器报告，未独立复跑"}
+                            </small>
+                            <pre>{c.evidence}</pre>
+                          </article>
+                        ))}
+                      </details>
+                    )}
                     {!task.messages?.length && (
                       <div className="empty">
                         <h2>从一个明确的目标开始</h2>
@@ -497,32 +614,21 @@ function App() {
                           </button>
                         </article>
                       ))}
-                    {events
-                      .filter(
-                        (e) =>
-                          e.kind === "approval" &&
-                          task.approvals?.some(
-                            (a: Row) =>
-                              a.native_id === e.data.approval_id &&
-                              a.status === "pending",
-                          ) &&
-                          !events.some(
-                            (x) =>
-                              x.kind === "approval_decided" &&
-                              x.data.approval_id === e.data.approval_id,
-                          ),
-                      )
-                      .map((e) => (
+                    {task.approvals
+                      ?.filter((a: Row) => a.status === "pending")
+                      .map((e: Row) => (
                         <article className="gate" key={e.id}>
-                          <b>工具授权 · {e.data.tool}</b>
-                          <pre>{JSON.stringify(e.data.details, null, 2)}</pre>
+                          <b>工具授权 · {e.details.tool}</b>
+                          <pre>
+                            {JSON.stringify(e.details.details, null, 2)}
+                          </pre>
                           {["accept", "decline"].map((d) => (
                             <button
                               key={d}
                               onClick={() =>
                                 act(async () => {
                                   await api(
-                                    `/tasks/${task.id}/approvals/${task.approvals?.find((a: Row) => a.native_id === e.data.approval_id)?.id || e.data.approval_id}`,
+                                    `/tasks/${task.id}/approvals/${e.id}`,
                                     "POST",
                                     { decision: d },
                                   );
@@ -903,6 +1009,66 @@ function App() {
                   {modal === "login" ? "还没有账户？注册" : "已有账户？登录"}
                 </button>
               </>
+            ) : modal === "回收区" ? (
+              <>
+                {trash.map((p) => (
+                  <article className="item" key={p.id}>
+                    <b>{p.name}</b>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        act(async () => {
+                          await api(`/projects/${p.id}/restore`, "POST");
+                          TR(await api("/trash"));
+                          await loadProjects();
+                        })
+                      }
+                    >
+                      恢复项目
+                    </button>
+                  </article>
+                ))}
+                {!trash.length && <p>回收区为空</p>}
+              </>
+            ) : modal === "个人指令" ? (
+              <label>
+                账户长期指令
+                <textarea
+                  name="content"
+                  maxLength={16000}
+                  defaultValue={user?.instructions}
+                />
+              </label>
+            ) : modal === "任务设置" ? (
+              <>
+                <p>执行中请先停止。修改后建立新会话，保留历史并重新确认。</p>
+                <label>
+                  工作模式
+                  <select name="mode" defaultValue={task?.mode}>
+                    <option value="free">自由模式</option>
+                    <option value="development">需求开发</option>
+                  </select>
+                </label>
+                <label>
+                  执行器
+                  <select name="engine" defaultValue={task?.engine}>
+                    <option>codex</option>
+                    <option>claude</option>
+                  </select>
+                </label>
+                <label>
+                  模型
+                  <input name="model" defaultValue={task?.model || ""} />
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    name="require_acceptance"
+                    defaultChecked={!!task?.require_acceptance}
+                  />
+                  自由模式需要人工验收
+                </label>
+              </>
             ) : modal === "设置" ? (
               <>
                 <label>
@@ -956,13 +1122,17 @@ function App() {
                       </select>
                     </label>
                     <label>
+                      <input name="require_acceptance" type="checkbox" />
+                      自由模式额外要求人工验收
+                    </label>
+                    <label>
                       执行器
                       <select name="engine">
                         {["codex", "claude"].map((x) => (
                           <option key={x} value={x}>
                             {x} ·{" "}
                             {engines.find((e) => e.engine === x)?.available
-                              ? "就绪"
+                              ? "环境可用，认证待验证"
                               : "未就绪"}
                           </option>
                         ))}
@@ -1021,7 +1191,7 @@ function App() {
                 )}
               </>
             )}
-            <button className="primary" disabled={busy}>
+            <button className="primary" disabled={busy || modal === "回收区"}>
               {busy ? "正在保存…" : modal === "login" ? "登录" : "保存"}
             </button>
           </form>

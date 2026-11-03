@@ -23,7 +23,7 @@ class Store:
         self.lock = threading.RLock()
         self.connection = sqlite3.connect(path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
-        self.connection.executescript('''
+        self.connection.executescript("""
         PRAGMA journal_mode=WAL;
         PRAGMA foreign_keys=ON;
         CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,instructions TEXT NOT NULL DEFAULT '');
@@ -42,7 +42,21 @@ class Store:
         CREATE TABLE IF NOT EXISTS members(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),name TEXT NOT NULL,role TEXT NOT NULL,engine TEXT NOT NULL,created_at REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS baselines(task_id TEXT NOT NULL REFERENCES tasks(id),path TEXT NOT NULL,digest TEXT,PRIMARY KEY(task_id,path));
         CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),run_id TEXT NOT NULL REFERENCES runs(id),path TEXT NOT NULL,digest TEXT NOT NULL,size INTEGER NOT NULL,created_at REAL NOT NULL);
-        ''')
+        CREATE TABLE IF NOT EXISTS checks(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),run_id TEXT NOT NULL REFERENCES runs(id),name TEXT NOT NULL,status TEXT NOT NULL,evidence TEXT NOT NULL,source TEXT NOT NULL,created_at REAL NOT NULL);
+        """)
+        columns = {
+            row["name"] for row in self.connection.execute("PRAGMA table_info(tasks)")
+        }
+        if "require_acceptance" not in columns:
+            self.connection.execute(
+                "ALTER TABLE tasks ADD COLUMN require_acceptance INTEGER NOT NULL DEFAULT 0"
+            )
+        project_columns = {
+            row["name"]
+            for row in self.connection.execute("PRAGMA table_info(projects)")
+        }
+        if "deleted_at" not in project_columns:
+            self.connection.execute("ALTER TABLE projects ADD COLUMN deleted_at REAL")
         self.connection.commit()
 
     @contextmanager
@@ -66,8 +80,12 @@ class Store:
 
     def all(self, sql, parameters=()):
         with self.lock:
-            return [dict(row) for row in self.connection.execute(sql, parameters).fetchall()]
+            return [
+                dict(row) for row in self.connection.execute(sql, parameters).fetchall()
+            ]
 
     def event(self, task_id, kind, data, run_id=None):
-        self.execute('INSERT INTO events(task_id,run_id,kind,data,created_at) VALUES(?,?,?,?,?)', (task_id, run_id, kind, json.dumps(data, ensure_ascii=False), now()))
-
+        self.execute(
+            "INSERT INTO events(task_id,run_id,kind,data,created_at) VALUES(?,?,?,?,?)",
+            (task_id, run_id, kind, json.dumps(data, ensure_ascii=False), now()),
+        )

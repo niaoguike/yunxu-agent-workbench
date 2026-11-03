@@ -1,5 +1,6 @@
 import React, { useState as S, useEffect as E, useRef as Ref } from "react";
 import { createRoot } from "react-dom/client";
+import { executionView } from "./execution";
 import "./style.css";
 type Row = Record<string, any>;
 async function api(path: string, method = "GET", body?: unknown) {
@@ -67,6 +68,7 @@ function App() {
     [busy, B] = S(false),
     [notice, N] = S("");
   const selection = Ref({ project: "", task: "", tab: "" });
+  const execution = executionView(task?.version, task?.runs, task?.checks);
   selection.current = { project: project?.id || "", task: task?.id || "", tab };
   async function act(fn: () => Promise<void>) {
     B(true);
@@ -560,10 +562,12 @@ function App() {
                         ))}
                       </details>
                     )}
-                    {task.checks?.length > 0 && (
+                    {execution.currentChecks.length > 0 && (
                       <details>
-                        <summary>交付检查记录（{task.checks.length}）</summary>
-                        {task.checks.map((c: Row) => (
+                        <summary>
+                          本次交付检查（{execution.currentChecks.length}）
+                        </summary>
+                        {execution.currentChecks.map((c) => (
                           <article className="event" key={c.id}>
                             <b>
                               {c.name} · {c.status}
@@ -610,13 +614,37 @@ function App() {
                           </article>
                         ) : null;
                       })}
-                    {task.runs
-                      ?.filter((r: Row) => r.error)
-                      .map((r: Row) => (
-                        <div className="error" key={r.id}>
-                          {r.error}
-                        </div>
-                      ))}
+                    {execution.currentError && (
+                      <div role="alert" className="error">
+                        {execution.currentError}
+                      </div>
+                    )}
+                    {execution.historyRuns.length > 0 && (
+                      <details className="run-history">
+                        <summary>
+                          历史执行记录（{execution.historyRuns.length} 次）
+                        </summary>
+                        {execution.historyRuns.map((r) => (
+                          <article className="event" key={r.id}>
+                            <b>
+                              需求版本 {r.version} ·{" "}
+                              {status[r.status] || r.status}
+                            </b>
+                            <small>
+                              {new Date(r.created_at * 1000).toLocaleString()}
+                            </small>
+                            {r.error && <p>{r.error}</p>}
+                            {task.checks
+                              ?.filter((c: Row) => c.run_id === r.id)
+                              .map((c: Row) => (
+                                <p key={c.id}>
+                                  {c.name} · {c.status}
+                                </p>
+                              ))}
+                          </article>
+                        ))}
+                      </details>
+                    )}
                     {task.gates
                       ?.filter((g: Row) => g.status === "pending")
                       .map((g: Row) => (

@@ -100,8 +100,11 @@ $env:CODEX_COMMAND='codex' # 或 codex.exe 的完整路径
 
 ```powershell
 .venv/Scripts/python.exe -m pytest -q
+npm.cmd test --prefix frontend
 npm.cmd run build --prefix frontend
 ```
+
+前端状态回归测试使用 Node 内置 TypeScript 支持，需要 Node 22.18+ 或 24+。
 
 可选浏览器验证（已安装 Chrome/Edge）：
 

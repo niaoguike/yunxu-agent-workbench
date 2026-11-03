@@ -1,0 +1,11 @@
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm git ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @openai/codex && pip install --no-cache-dir claude-agent-sdk
+RUN useradd --create-home --uid 1000 runner
+COPY backend/workbench /opt/workbench/workbench
+ENV PYTHONPATH=/opt/workbench
+ENV HOME=/workspace/.native
+ENV CODEX_HOME=/workspace/.native/codex
+USER runner
+WORKDIR /workspace
+CMD ["python", "-m", "workbench.runner"]

@@ -3,22 +3,38 @@ import asyncio
 import json
 import sys
 import uuid
+import threading
+import os
+from pathlib import Path
 
 def emit(kind, **data):
     print(json.dumps({'kind': kind, 'data': data}), flush=True)
 
 async def main():
-    config = json.loads(await asyncio.to_thread(sys.stdin.readline))
+    loop = asyncio.get_running_loop()
+    lines = asyncio.Queue()
+    def read_stdin():
+        for line in sys.stdin:
+            try:
+                loop.call_soon_threadsafe(lines.put_nowait, line)
+            except RuntimeError:
+                return
+    threading.Thread(target=read_stdin, daemon=True).start()
+    config = json.loads(await lines.get())
     request = config['request']
     workspace = '/workspace' if config['container'] else request['workspace']
+    if config['container']:
+        Path(os.environ['HOME']).mkdir(parents=True, exist_ok=True)
+        Path(os.environ['CODEX_HOME']).mkdir(parents=True, exist_ok=True)
     approvals = {}
     stop = asyncio.Event()
     async def controls():
-        while line := await asyncio.to_thread(sys.stdin.readline):
+        while True:
+            line = await lines.get()
             value = json.loads(line)
             if value.get('stop'):
                 stop.set()
-            elif value.get('approval_id') in approvals:
+            elif value.get('approval_id') in approvals and not approvals[value['approval_id']].done():
                 approvals[value['approval_id']].set_result(value['decision'])
     control = asyncio.create_task(controls())
     async def permission(tool, details):
@@ -138,3 +154,5 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+
+

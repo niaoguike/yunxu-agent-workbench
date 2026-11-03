@@ -207,6 +207,14 @@ async def main():
                         task.add_done_callback(tasks.discard)
                     elif msg["method"] == "item/agentMessage/delta":
                         emit("delta", text=msg["params"]["delta"])
+                    elif msg["method"] == "error":
+                        error = msg.get("params", {}).get("error", {})
+                        emit(
+                            "diagnostic",
+                            message=error.get(
+                                "message", "Native executor reported an error"
+                            ),
+                        )
                     elif msg["method"] == "turn/started":
                         turn = msg["params"]["turn"]["id"]
                     elif msg["method"] == "turn/completed":

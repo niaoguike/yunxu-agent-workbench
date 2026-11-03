@@ -36,7 +36,7 @@ $env:WORKBENCH_ORIGIN='http://127.0.0.1:8000'
 .venv/Scripts/python.exe -m uvicorn workbench.main:app --host 127.0.0.1 --port 8000
 ```
 
-Linux/macOS 使用 `.venv/bin/python` 和 `npm`。环境变量直接设置在服务进程环境，或使用 `uvicorn --env-file .env`；仅复制 `.env.example` 不会自动加载它。
+Linux/macOS 使用 `.venv/bin/python` 和 `npm`。`scripts/dev.ps1 api` 会加载项目根目录已有的 `.env`；直接使用 Uvicorn 时需传入 `--env-file .env`，或直接设置服务进程环境变量。
 
 ## 接入执行器
 

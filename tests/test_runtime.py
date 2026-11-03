@@ -59,6 +59,7 @@ for line in sys.stdin:
   send({'id':9001,'method':'item/commandExecution/requestApproval','params':{'command':'fixture command'}})
  elif m.get('id')==9001:
   assert m['result']['decision']=='decline'
+  send({'method':'error','params':{'error':{'message':'fixture retry notice'}}})
   send({'method':'item/agentMessage/delta','params':{'delta':'declined safely'}})
   send({'method':'turn/completed','params':{'turn':{'id':'fixture-turn','status':'completed'}}})
 """
@@ -95,6 +96,10 @@ for line in sys.stdin:
             ["declined safely"],
         )
         self.assertEqual(events[-1].data["status"], "completed")
+        self.assertEqual(
+            [event.data["message"] for event in events if event.kind == "diagnostic"],
+            ["fixture retry notice"],
+        )
 
 
 class WorkerProtocolTests(unittest.TestCase):

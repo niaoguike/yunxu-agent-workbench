@@ -203,6 +203,7 @@ class Workflow:
                     else None,
                     "version": task["version"],
                     "stage": task["stage"],
+                    "permission_mode": task["permission_mode"],
                 }
                 self.store.execute(
                     "UPDATE runs SET snapshot=? WHERE id=?",
@@ -245,6 +246,7 @@ class Workflow:
                     model=task["model"],
                     instructions=instructions,
                     mcp_servers=mcp,
+                    permission_mode=task["permission_mode"],
                 )
                 chunks, final_messages, terminal = [], [], None
                 async with asyncio.timeout(self.settings.max_run_seconds):

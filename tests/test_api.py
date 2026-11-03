@@ -551,3 +551,44 @@ def test_restart_pauses_queued_project_when_inflight_result_is_uncertain(tmp_pat
         assert client.get(f"/api/tasks/{first['id']}").json()["status"] == "interrupted"
         assert client.get(f"/api/tasks/{second['id']}").json()["status"] == "paused"
         assert restarted.requests == []
+
+
+def test_permission_mode_roundtrip_and_stage_gate_stays_independent(setup):
+    client, project, engine = setup
+    item = client.post(
+        f"/api/projects/{project['id']}/tasks",
+        json={"title": "Auto requirement", "mode": "development"},
+    ).json()
+    assert item["permission_mode"] == "auto"
+    base = f"/api/tasks/{item['id']}"
+    client.post(base + "/messages", json={"content": "Define requirements"})
+    first = wait_task(client, item["id"], {"waiting_confirmation"})
+    assert engine.requests[-1].permission_mode == "auto"
+    assert first["stage"] == 0
+    assert first["gates"][-1]["status"] == "pending"
+    assert client.patch(base, json={"permission_mode": "ask"}).status_code == 200
+    changed = client.get(base).json()
+    assert changed["version"] == first["version"]
+    assert changed["gates"][-1]["status"] == "pending"
+    assert changed["status"] == "waiting_confirmation"
+    client.post(base + "/messages", json={"content": "Continue with Ask"})
+    second = wait_task(client, item["id"], {"waiting_confirmation"})
+    assert engine.requests[-1].permission_mode == "ask"
+    assert engine.requests[-1].session_id is None
+    assert json.loads(second["runs"][-1]["snapshot"])["permission_mode"] == "ask"
+    assert (
+        client.patch(base, json={"permission_mode": "full-access"}).status_code == 422
+    )
+
+
+def test_permission_mode_cannot_change_while_a_native_turn_is_active(setup):
+    client, project, engine = setup
+    engine.hold = True
+    item = task(client, project)
+    base = f"/api/tasks/{item['id']}"
+    client.post(base + "/messages", json={"content": "Work"})
+    wait_task(client, item["id"], {"running"})
+    assert client.patch(base, json={"permission_mode": "ask"}).status_code == 409
+    client.post(base + "/stop")
+    wait_task(client, item["id"], {"interrupted"})
+    assert client.patch(base, json={"permission_mode": "ask"}).status_code == 200

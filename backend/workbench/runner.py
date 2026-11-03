@@ -7,6 +7,7 @@ import uuid
 import threading
 import os
 from pathlib import Path
+from .permissions import codex_permissions, claude_needs_human
 
 
 def emit(kind, **data):
@@ -23,10 +24,18 @@ async def main():
                 loop.call_soon_threadsafe(lines.put_nowait, line)
             except RuntimeError:
                 return
+        try:
+            loop.call_soon_threadsafe(lines.put_nowait, None)
+        except RuntimeError:
+            pass
 
     threading.Thread(target=read_stdin, daemon=True).start()
     config = json.loads(await lines.get())
     request = config["request"]
+    permission_mode = request.get("permission_mode", "ask")
+    if permission_mode not in {"auto", "ask"}:
+        emit("completed", status="failed", error="Unknown permission mode")
+        return
     workspace = "/workspace" if config["container"] else request["workspace"]
     if config["container"]:
         Path(os.environ["HOME"]).mkdir(parents=True, exist_ok=True)
@@ -37,6 +46,9 @@ async def main():
     async def controls():
         while True:
             line = await lines.get()
+            if line is None:
+                stop.set()
+                return
             value = json.loads(line)
             if value.get("stop"):
                 stop.set()
@@ -49,6 +61,8 @@ async def main():
     control = asyncio.create_task(controls())
 
     async def permission(tool, details):
+        if stop.is_set():
+            return "decline"
         key = str(uuid.uuid4())
         future = asyncio.get_running_loop().create_future()
         approvals[key] = future
@@ -66,6 +80,7 @@ async def main():
                 ClaudeSDKClient,
                 ClaudeAgentOptions,
                 PermissionResultDeny,
+                PermissionResultAllow,
                 ResultMessage,
                 AssistantMessage,
                 TextBlock,
@@ -74,6 +89,13 @@ async def main():
             )
 
             async def before_tool(inputs, tool_use_id, context):
+                if not claude_needs_human(
+                    permission_mode,
+                    inputs["tool_name"],
+                    inputs.get("tool_input", {}),
+                    workspace,
+                ):
+                    return {}
                 decision = await permission(
                     inputs["tool_name"], inputs.get("tool_input", {})
                 )
@@ -88,8 +110,11 @@ async def main():
                 }
 
             async def can_use_tool(name, inputs, context):
-                return PermissionResultDeny(
-                    message="Tool did not pass platform PreToolUse approval"
+                decision = await permission(name, inputs)
+                return (
+                    PermissionResultAllow(updated_input=inputs)
+                    if decision == "accept"
+                    else PermissionResultDeny(message="Denied by platform user")
                 )
 
             options = ClaudeAgentOptions(
@@ -98,7 +123,7 @@ async def main():
                 model=request["model"],
                 system_prompt=request["instructions"] or None,
                 mcp_servers=request["mcp_servers"],
-                permission_mode="default",
+                permission_mode="auto" if permission_mode == "auto" else "default",
                 can_use_tool=can_use_tool,
                 hooks={
                     "PreToolUse": [
@@ -215,6 +240,37 @@ async def main():
                                 "message", "Native executor reported an error"
                             ),
                         )
+                    elif msg["method"] in {
+                        "item/autoApprovalReview/started",
+                        "item/autoApprovalReview/completed",
+                    }:
+                        data = msg.get("params", {})
+                        emit(
+                            "auto_review",
+                            review_id=data.get("reviewId"),
+                            item_id=data.get("targetItemId"),
+                            review=data.get("review", {}),
+                            decision_source=data.get("decisionSource"),
+                            action_type=data.get("action", {}).get("type"),
+                        )
+                    elif msg["method"] in {"item/started", "item/completed"}:
+                        item = msg.get("params", {}).get("item", {})
+                        if item.get("type") in {
+                            "commandExecution",
+                            "fileChange",
+                            "mcpToolCall",
+                        }:
+                            emit(
+                                "tool_activity",
+                                item_id=item.get("id"),
+                                tool=item.get("type"),
+                                status=item.get(
+                                    "status",
+                                    "started"
+                                    if msg["method"] == "item/started"
+                                    else "completed",
+                                ),
+                            )
                     elif msg["method"] == "turn/started":
                         turn = msg["params"]["turn"]["id"]
                     elif msg["method"] == "turn/completed":
@@ -234,14 +290,13 @@ async def main():
                     "initialize",
                     {
                         "clientInfo": {"name": "workbench", "version": "0.1.0"},
-                        "capabilities": {"experimentalApi": False},
+                        "capabilities": {"experimentalApi": True},
                     },
                 )
                 await send({"method": "initialized", "params": {}})
                 params = {
                     "cwd": workspace,
-                    "approvalPolicy": "untrusted",
-                    "sandbox": "workspace-write",
+                    **codex_permissions(permission_mode),
                 }
                 if request["model"]:
                     params["model"] = request["model"]
@@ -257,7 +312,24 @@ async def main():
                         params,
                     )
                 except RuntimeError as error:
-                    if request["session_id"] and "no rollout found" in str(error):
+                    if "approvalsReviewer" in str(error) or "auto_review" in str(error):
+                        fallback = codex_permissions(
+                            "ask",
+                            auto_review_supported="unknown field" not in str(error),
+                        )
+                        params.pop("approvalsReviewer", None)
+                        params.update(fallback)
+                        emit(
+                            "diagnostic",
+                            message="Native auto review unavailable; falling back to human approval within workspace-write",
+                        )
+                        result = await rpc(
+                            "thread/resume"
+                            if request["session_id"]
+                            else "thread/start",
+                            params,
+                        )
+                    elif request["session_id"] and "no rollout found" in str(error):
                         emit(
                             "diagnostic",
                             message="Native session has no saved rollout; creating a new thread with platform message history",
@@ -268,11 +340,29 @@ async def main():
                         raise
                 thread = result["thread"]["id"]
                 emit("session", session_id=thread)
+                emit(
+                    "permission_policy",
+                    mode=permission_mode,
+                    approval_policy=params["approvalPolicy"],
+                    reviewer=params.get("approvalsReviewer", "user"),
+                    sandbox=params["sandbox"],
+                )
                 result = await rpc(
                     "turn/start",
                     {
                         "threadId": thread,
                         "input": [{"type": "text", "text": request["prompt"]}],
+                        "approvalPolicy": params["approvalPolicy"],
+                        **(
+                            {"approvalsReviewer": params["approvalsReviewer"]}
+                            if "approvalsReviewer" in params
+                            else {}
+                        ),
+                        "sandboxPolicy": {
+                            "type": "workspaceWrite",
+                            "writableRoots": [workspace],
+                            "networkAccess": False,
+                        },
                     },
                 )
                 turn = result["turn"]["id"]

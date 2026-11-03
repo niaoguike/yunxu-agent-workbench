@@ -407,6 +407,11 @@ function App() {
                 <>
                   <div className="taskmeta">
                     <span className="badge">
+                      {task.permission_mode === "ask"
+                        ? "Ask · 原生请求人工确认"
+                        : "Auto · 原生风险审核"}
+                    </span>
+                    <span className="badge">
                       {task.mode === "development" ? "需求开发" : "自由模式"}
                     </span>
                     <span>
@@ -519,6 +524,42 @@ function App() {
                         </button>
                       </article>
                     ))}
+                    {events.some((e) => e.kind === "auto_review") && (
+                      <details>
+                        <summary>工具自动审核记录</summary>
+                        {Array.from(
+                          new Map(
+                            events
+                              .filter((e) => e.kind === "auto_review")
+                              .map((e) => [e.data.review_id, e]),
+                          ).values(),
+                        ).map((e) => (
+                          <article className="event" key={e.id}>
+                            <b>
+                              {(
+                                {
+                                  inProgress: "自动审核中",
+                                  approved: "自动审核通过",
+                                  denied: "自动审核拒绝",
+                                  timedOut: "审核超时，未授权",
+                                  aborted: "审核已取消",
+                                } as Row
+                              )[e.data.review?.status] || "自动审核"}
+                            </b>
+                            <small>{e.data.review?.riskLevel}</small>
+                            <p>{e.data.review?.rationale}</p>
+                            {["denied", "timedOut"].includes(
+                              e.data.review?.status,
+                            ) && (
+                              <small>
+                                操作未获授权。需要人工处理时，可在任务停止后切换
+                                Ask 模式并明确补充要求。
+                              </small>
+                            )}
+                          </article>
+                        ))}
+                      </details>
+                    )}
                     {task.checks?.length > 0 && (
                       <details>
                         <summary>交付检查记录（{task.checks.length}）</summary>
@@ -1041,6 +1082,20 @@ function App() {
               </label>
             ) : modal === "任务设置" ? (
               <>
+                <label>
+                  工具授权策略
+                  <select
+                    name="permission_mode"
+                    defaultValue={task?.permission_mode || "auto"}
+                  >
+                    <option value="auto">Auto · 常规操作自动推进</option>
+                    <option value="ask">Ask · 需要授权时询问我</option>
+                  </select>
+                </label>
+                <small>
+                  工具授权与阶段验收独立。Auto
+                  采用原生风险审核，拒绝或不可用时不会自动放开全部权限。
+                </small>
                 <p>执行中请先停止。修改后建立新会话，保留历史并重新确认。</p>
                 <label>
                   工作模式
@@ -1110,6 +1165,13 @@ function App() {
                 </label>
                 {modal === "任务" && (
                   <>
+                    <label>
+                      工具授权策略
+                      <select name="permission_mode" defaultValue="auto">
+                        <option value="auto">Auto · 常规操作自动推进</option>
+                        <option value="ask">Ask · 需要授权时询问我</option>
+                      </select>
+                    </label>
                     <label>
                       工作模式
                       <select name="mode">

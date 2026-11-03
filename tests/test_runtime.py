@@ -142,3 +142,141 @@ class WorkerProtocolTests(unittest.TestCase):
                 process.stdin.close()
                 process.stdout.close()
                 process.stderr.close()
+
+
+class PermissionRoutingProtocolTests(unittest.TestCase):
+    def test_unsupported_auto_reviewer_falls_back_to_real_human_request(self):
+        import sys
+        import tempfile
+        from pathlib import Path
+
+        script = """import sys,json
+def send(x):print(json.dumps(x),flush=True)
+for line in sys.stdin:
+ m=json.loads(line);p=m.get('params',{});method=m.get('method')
+ if method=='initialize':send({'id':m['id'],'result':{}})
+ elif method=='thread/start':
+  if 'approvalsReviewer' in p:send({'id':m['id'],'error':{'code':-32602,'message':'unknown field approvalsReviewer'}})
+  else:
+   assert p['approvalPolicy']=='on-request' and p['sandbox']=='workspace-write'
+   send({'id':m['id'],'result':{'thread':{'id':'fallback'}}})
+ elif method=='turn/start':
+  assert 'approvalsReviewer' not in p and p['approvalPolicy']=='on-request'
+  send({'id':m['id'],'result':{'turn':{'id':'turn'}}})
+  send({'id':9001,'method':'item/commandExecution/requestApproval','params':{'command':'fixture'}})
+ elif m.get('id')==9001:
+  assert m['result']['decision']=='decline'
+  send({'method':'turn/completed','params':{'turn':{'id':'turn','status':'completed'}}})
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "app-server").write_text(script, encoding="utf-8")
+            manager = RuntimeManager(
+                SimpleNamespace(
+                    runner="trusted-local",
+                    codex_command=sys.executable,
+                    approval_timeout=2,
+                )
+            )
+
+            async def run():
+                events = []
+                async with asyncio.timeout(15):
+                    async for event in manager.execute(
+                        RunRequest(
+                            "fallback",
+                            "codex",
+                            directory,
+                            "fixture only",
+                            permission_mode="auto",
+                        )
+                    ):
+                        events.append(event)
+                        if event.kind == "approval":
+                            await manager.approve(
+                                "fallback", event.data["approval_id"], "decline"
+                            )
+                return events
+
+            events = asyncio.run(run())
+        self.assertEqual(events[-1].data["status"], "completed")
+        self.assertEqual(sum(event.kind == "approval" for event in events), 1)
+        self.assertTrue(
+            any(
+                "falling back to human" in event.data.get("message", "")
+                for event in events
+            )
+        )
+
+    def test_auto_and_ask_override_resumed_native_policy(self):
+        import sys
+        import tempfile
+        from pathlib import Path
+
+        for mode, reviewer in [("auto", "auto_review"), ("ask", "user")]:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                script = """import sys,json
+def send(x): print(json.dumps(x),flush=True)
+for line in sys.stdin:
+ m=json.loads(line);method=m.get('method');p=m.get('params',{})
+ if method=='initialize':send({'id':m['id'],'result':{}})
+ elif method in ('thread/start','thread/resume'):
+  assert p['approvalPolicy']=='on-request' and p['sandbox']=='workspace-write'
+  assert p['approvalsReviewer']==REVIEWER
+  send({'id':m['id'],'result':{'thread':{'id':'resumed'}}})
+ elif method=='turn/start':
+  assert p['approvalsReviewer']==REVIEWER and p['approvalPolicy']=='on-request'
+  assert p['sandboxPolicy']['type']=='workspaceWrite' and p['sandboxPolicy']['networkAccess'] is False
+  send({'id':m['id'],'result':{'turn':{'id':'turn'}}})
+  if REVIEWER=='auto_review':
+   send({'method':'item/autoApprovalReview/completed','params':{'reviewId':'review-one','review':{'status':'denied','riskLevel':'high','rationale':'outside authority'},'decisionSource':'agent','action':{'type':'command'}}})
+   send({'method':'turn/completed','params':{'turn':{'id':'turn','status':'completed'}}})
+  else:send({'id':9001,'method':'item/commandExecution/requestApproval','params':{'command':'fixture'}})
+ elif m.get('id')==9001:
+  assert m['result']['decision']=='decline'
+  send({'method':'turn/completed','params':{'turn':{'id':'turn','status':'completed'}}})
+""".replace("REVIEWER", repr(reviewer))
+                (Path(directory) / "app-server").write_text(script, encoding="utf-8")
+                manager = RuntimeManager(
+                    SimpleNamespace(
+                        runner="trusted-local",
+                        codex_command=sys.executable,
+                        approval_timeout=2,
+                    )
+                )
+
+                async def run():
+                    events = []
+                    async with asyncio.timeout(15):
+                        async for event in manager.execute(
+                            RunRequest(
+                                "routing",
+                                "codex",
+                                directory,
+                                "fixture only",
+                                session_id="old-auto-thread",
+                                permission_mode=mode,
+                            )
+                        ):
+                            events.append(event)
+                            if event.kind == "approval":
+                                await manager.approve(
+                                    "routing", event.data["approval_id"], "decline"
+                                )
+                    return events
+
+                events = asyncio.run(run())
+                self.assertEqual(events[-1].data["status"], "completed")
+                if mode == "auto":
+                    self.assertFalse(any(event.kind == "approval" for event in events))
+                    self.assertEqual(
+                        [
+                            event.data["review"]["status"]
+                            for event in events
+                            if event.kind == "auto_review"
+                        ],
+                        ["denied"],
+                    )
+                else:
+                    self.assertEqual(
+                        sum(event.kind == "approval" for event in events), 1
+                    )

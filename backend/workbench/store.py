@@ -51,6 +51,10 @@ class Store:
             self.connection.execute(
                 "ALTER TABLE tasks ADD COLUMN require_acceptance INTEGER NOT NULL DEFAULT 0"
             )
+        if "permission_mode" not in columns:
+            self.connection.execute(
+                "ALTER TABLE tasks ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'auto'"
+            )
         project_columns = {
             row["name"]
             for row in self.connection.execute("PRAGMA table_info(projects)")

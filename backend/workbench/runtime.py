@@ -17,6 +17,7 @@ class RunRequest:
     model: str | None = None
     instructions: str = ""
     mcp_servers: dict = field(default_factory=dict)
+    permission_mode: str = "auto"
 
 
 @dataclass

@@ -49,6 +49,7 @@ class TaskInput(BaseModel):
     engine: Literal["codex", "claude"] = "codex"
     model: str | None = Field(default=None, max_length=120)
     require_acceptance: bool = False
+    permission_mode: Literal["auto", "ask"] = "auto"
 
 
 class TaskPatch(BaseModel):
@@ -56,6 +57,7 @@ class TaskPatch(BaseModel):
     engine: Literal["codex", "claude"] | None = None
     model: str | None = Field(default=None, max_length=120)
     require_acceptance: bool | None = None
+    permission_mode: Literal["auto", "ask"] | None = None
 
 
 class Content(BaseModel):
@@ -335,7 +337,7 @@ def create_app(settings: Settings | None = None, runtime=None):
     def insert_task(project_id, body, member_id=None):
         task_id = uid()
         store.execute(
-            "INSERT INTO tasks(id,project_id,title,mode,engine,model,member_id,created_at,require_acceptance) VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO tasks(id,project_id,title,mode,engine,model,member_id,created_at,require_acceptance,permission_mode) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (
                 task_id,
                 project_id,
@@ -346,6 +348,7 @@ def create_app(settings: Settings | None = None, runtime=None):
                 member_id,
                 now(),
                 body.require_acceptance,
+                body.permission_mode,
             ),
         )
         return store.one("SELECT * FROM tasks WHERE id=?", (task_id,))
@@ -378,14 +381,32 @@ def create_app(settings: Settings | None = None, runtime=None):
 
     @app.patch("/api/tasks/{task_id}")
     async def update_task(task_id: str, body: TaskPatch, owner=Depends(user)):
-        task_owned(task_id, owner)
+        task = task_owned(task_id, owner)
         if store.one(
             "SELECT id FROM runs WHERE task_id=? AND status IN ('queued','running','stopping')",
             (task_id,),
         ):
             raise HTTPException(409, "先停止当前执行，再修改模式或执行器")
-        for key, value in body.model_dump(exclude_none=True).items():
+        values = body.model_dump(exclude_none=True)
+        if "model" in values:
+            values["model"] = values["model"] or None
+        changes = {key: value for key, value in values.items() if task[key] != value}
+        if not changes:
+            return task
+        for key, value in changes.items():
             store.execute(f"UPDATE tasks SET {key}=? WHERE id=?", (value, task_id))
+        if set(changes) == {"permission_mode"}:
+            store.execute("UPDATE tasks SET session_id=NULL WHERE id=?", (task_id,))
+            store.event(
+                task_id,
+                "permission_mode_changed",
+                {
+                    "previous": task["permission_mode"],
+                    "mode": changes["permission_mode"],
+                    "effective": "next native run; workflow gates unchanged",
+                },
+            )
+            return store.one("SELECT * FROM tasks WHERE id=?", (task_id,))
         store.execute(
             "UPDATE tasks SET version=version+1,stage=0,session_id=NULL,status='idle' WHERE id=?",
             (task_id,),

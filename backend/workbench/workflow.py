@@ -126,6 +126,9 @@ class Workflow:
                     self.finish(run_id, task_id, 'failed', '执行器未返回原生终态，结果不明')
                     return
                 status = terminal.get('status', 'failed')
+                native_run = self.store.one('SELECT status FROM runs WHERE id=?', (run_id,))
+                if native_run['status'] == 'stopping':
+                    status = 'interrupted'
                 if status != 'completed':
                     self.finish(run_id, task_id, status, terminal.get('error'))
                     return
@@ -173,6 +176,16 @@ class Workflow:
             self.finish(run_id, task_id, 'failed', str(error)[:1500] or type(error).__name__)
         finally:
             self.jobs.pop(run_id, None)
+            current = self.store.one('SELECT status FROM tasks WHERE id=?', (task_id,))
+            if not self.stopping and current['status'] not in {'interrupted', 'stopping', 'failed'}:
+                pending = self.store.one("SELECT * FROM pending_inputs WHERE task_id=? AND status='queued' ORDER BY created_at LIMIT 1", (task_id,))
+                if pending:
+                    with self.store.transaction() as db:
+                        db.execute("UPDATE pending_inputs SET status='dispatched' WHERE id=?", (pending['id'],))
+                        db.execute('INSERT INTO messages VALUES(?,?,?,?,?)', (pending['id'], task_id, 'user', pending['content'], pending['created_at']))
+                        db.execute("UPDATE gates SET status='invalidated' WHERE task_id=? AND status IN ('pending','approved')", (task_id,))
+                        db.execute('UPDATE tasks SET version=version+1,stage=0,session_id=NULL WHERE id=?', (task_id,))
+                    self.enqueue(task_id)
 
     def collect_memory(self, project, workspace):
         path = workspace / 'memory-notes.json'
@@ -201,6 +214,7 @@ class Workflow:
         self.store.event(task_id, 'run_finished', {'status': status, 'error': error}, run_id)
 
     async def stop(self, task_id):
+        self.store.execute("UPDATE pending_inputs SET status='paused' WHERE task_id=? AND status='queued'", (task_id,))
         active = self.store.all("SELECT id,status FROM runs WHERE task_id=? AND status IN ('queued','running','stopping')", (task_id,))
         for run in active:
             if run['status'] == 'queued':

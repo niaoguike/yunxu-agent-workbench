@@ -6,12 +6,14 @@ import secrets
 import shutil
 import sqlite3
 import zipfile
+import tempfile
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -82,6 +84,10 @@ class FileInput(BaseModel):
 
 class IntegrateInput(BaseModel):
     path: str = Field(min_length=1, max_length=500)
+
+
+class RepositoryInput(BaseModel):
+    url: str = Field(min_length=1, max_length=300)
 
 
 def password_hash(password, salt=None):
@@ -251,7 +257,7 @@ def create_app(settings: Settings | None = None, runtime=None):
     @app.get('/api/tasks/{task_id}')
     async def get_task(task_id: str, owner=Depends(user)):
         task = task_owned(task_id, owner)
-        for key in ('messages', 'runs', 'gates', 'approvals', 'artifacts'):
+        for key in ('messages', 'runs', 'gates', 'approvals', 'artifacts', 'pending_inputs'):
             task[key] = store.all(f'SELECT * FROM {key} WHERE task_id=? ORDER BY ' + ('id' if key == 'approvals' else 'created_at'), (task_id,))
         for approval in task['approvals']:
             approval['details'] = json.loads(approval['details'])
@@ -262,7 +268,10 @@ def create_app(settings: Settings | None = None, runtime=None):
         task = task_owned(task_id, owner)
         active = store.one("SELECT id FROM runs WHERE task_id=? AND status IN ('queued','running','stopping')", (task_id,))
         if active:
-            raise HTTPException(409, '任务正在执行；请先停止，再补充要求。当前执行器暂不提供平台内即时纠正。')
+            message = {'id': uid(), 'task_id': task_id, 'role': 'user', 'content': body.content, 'created_at': now(), 'status': 'queued'}
+            store.execute('INSERT INTO pending_inputs(id,task_id,content,created_at) VALUES(?,?,?,?)', (message['id'], task_id, body.content, message['created_at']))
+            store.event(task_id, 'input_queued', message)
+            return message
         available = next((e for e in await runtime.readiness() if e['engine'] == task['engine']), None)
         if not available or not available['available']:
             raise HTTPException(409, available['reason'] if available else '执行器未配置')
@@ -275,6 +284,22 @@ def create_app(settings: Settings | None = None, runtime=None):
         workflow.enqueue(task_id)
         return message
 
+    @app.post('/api/tasks/{task_id}/resume-queue')
+    async def resume_queue(task_id: str, owner=Depends(user)):
+        task_owned(task_id, owner)
+        if store.one("SELECT id FROM runs WHERE task_id=? AND status IN ('running','queued','stopping')", (task_id,)):
+            raise HTTPException(409, '任务仍在执行')
+        pending = store.one("SELECT * FROM pending_inputs WHERE task_id=? AND status IN ('paused','queued') ORDER BY created_at LIMIT 1", (task_id,))
+        if not pending:
+            raise HTTPException(404, '没有待恢复消息')
+        store.execute("UPDATE pending_inputs SET status='queued' WHERE task_id=? AND status='paused'", (task_id,))
+        store.execute("UPDATE pending_inputs SET status='dispatched' WHERE id=?", (pending['id'],))
+        store.execute('INSERT INTO messages VALUES(?,?,?,?,?)', (pending['id'], task_id, 'user', pending['content'], pending['created_at']))
+        store.execute("UPDATE gates SET status='invalidated' WHERE task_id=? AND status IN ('pending','approved')", (task_id,))
+        store.execute('UPDATE tasks SET version=version+1,stage=0,session_id=NULL WHERE id=?', (task_id,))
+        workflow.enqueue(task_id)
+        return {'ok': True}
+
     @app.post('/api/tasks/{task_id}/stop')
     async def stop(task_id: str, owner=Depends(user)):
         task_owned(task_id, owner)
@@ -285,6 +310,19 @@ def create_app(settings: Settings | None = None, runtime=None):
         task_owned(task_id, owner)
         rows = store.all('SELECT * FROM events WHERE task_id=? AND id>? ORDER BY id LIMIT 500', (task_id, after))
         return [{**row, 'data': json.loads(row['data'])} for row in rows]
+
+    @app.get('/api/tasks/{task_id}/files')
+    async def task_files(task_id: str, owner=Depends(user)):
+        task = task_owned(task_id, owner)
+        return inventory(workflow.workspace(task))
+
+    @app.get('/api/tasks/{task_id}/file')
+    async def task_file(task_id: str, path: str, owner=Depends(user)):
+        task = task_owned(task_id, owner)
+        target = checked_path(workflow.workspace(task), path)
+        if not target.is_file():
+            raise HTTPException(404, '文件不存在')
+        return FileResponse(target, filename=target.name, media_type='application/octet-stream')
 
     @app.post('/api/tasks/{task_id}/gates/{gate_id}')
     async def decide_gate(task_id: str, gate_id: str, body: GateDecision, owner=Depends(user)):
@@ -380,6 +418,51 @@ def create_app(settings: Settings | None = None, runtime=None):
         task_owned(item['task_id'], owner)
         path = checked_path(settings.data_dir / 'artifacts' / item['run_id'], item['path'])
         return FileResponse(path, filename=path.name, media_type='application/octet-stream')
+
+    @app.get('/api/projects/{project_id}/preview')
+    async def preview(project_id: str, path: str, owner=Depends(user)):
+        project_owned(project_id, owner)
+        target = checked_path(project_workspace(project_id), path)
+        if not target.is_file() or target.suffix.lower() not in {'.html', '.htm', '.txt', '.md', '.json', '.csv'}:
+            raise HTTPException(400, '仅支持 HTML 和文本的隔离静态预览')
+        if target.stat().st_size > 1000000:
+            raise HTTPException(413, '预览文件过大')
+        content = target.read_text(encoding='utf-8', errors='replace')
+        if target.suffix.lower() not in {'.html', '.htm'}:
+            import html
+            content = '<pre>' + html.escape(content) + '</pre>'
+        return HTMLResponse(content, headers={'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'", 'X-Frame-Options': 'SAMEORIGIN'})
+
+    @app.post('/api/projects/{project_id}/import-repository')
+    async def import_repository(project_id: str, body: RepositoryInput, owner=Depends(user)):
+        project_owned(project_id, owner)
+        ensure_project_idle(project_id)
+        if not re.fullmatch(r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?/?', body.url):
+            raise HTTPException(400, '首版仅支持公开 GitHub HTTPS 仓库地址')
+        if not shutil.which('git'):
+            raise HTTPException(409, '服务器未安装 Git')
+        with tempfile.TemporaryDirectory(dir=settings.data_dir) as temporary:
+            destination = Path(temporary) / 'source'
+            process = await asyncio.create_subprocess_exec('git', '-c', 'credential.helper=', '-c', 'core.hooksPath=', 'clone', '--depth=1', '--no-recurse-submodules', '--', body.url, str(destination), stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE, env={**__import__('os').environ, 'GIT_TERMINAL_PROMPT': '0', 'GIT_LFS_SKIP_SMUDGE': '1'})
+            try:
+                _, stderr = await asyncio.wait_for(process.communicate(), 90)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                raise HTTPException(408, '仓库导入超时')
+            if process.returncode:
+                raise HTTPException(400, '公开仓库无法导入：' + stderr.decode(errors='replace')[-500:])
+            files = inventory(destination)
+            if sum(file['size'] for file in files) > settings.max_upload * 5:
+                raise HTTPException(413, '仓库文件超过 100MB 限制')
+            root = project_workspace(project_id)
+            for file in files:
+                source = checked_path(destination, file['path'])
+                target = checked_path(root, file['path'])
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, target)
+            invalidate_project_gates(project_id)
+            return {'imported': len(files), 'url': body.url}
 
     @app.get('/api/projects/{project_id}/memories')
     async def memories(project_id: str, q: str = '', owner=Depends(user)):

@@ -146,10 +146,11 @@ def test_stop_cancels_native_run_and_does_not_deliver(setup):
     item = task(client, project)
     client.post(f'/api/tasks/{item["id"]}/messages', json={'content': 'Work'})
     wait_task(client, item['id'], {'running'})
-    assert client.post(f'/api/tasks/{item["id"]}/messages', json={'content': 'race'}).status_code == 409
+    assert client.post(f'/api/tasks/{item["id"]}/messages', json={'content': 'race'}).status_code == 201
     client.post(f'/api/tasks/{item["id"]}/stop')
     result = wait_task(client, item['id'], {'interrupted'})
     assert result['gates'] == []
+    assert result['pending_inputs'][0]['status'] == 'paused'
 
 
 def test_memory_opt_in_and_skill_snapshot(setup):

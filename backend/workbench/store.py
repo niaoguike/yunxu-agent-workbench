@@ -31,6 +31,7 @@ class Store:
         CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id),name TEXT NOT NULL,instructions TEXT NOT NULL DEFAULT '',memory_enabled INTEGER NOT NULL DEFAULT 0,created_at REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),title TEXT NOT NULL,mode TEXT NOT NULL,engine TEXT NOT NULL,model TEXT, status TEXT NOT NULL DEFAULT 'idle',stage INTEGER NOT NULL DEFAULT 0,version INTEGER NOT NULL DEFAULT 1,session_id TEXT,member_id TEXT,created_at REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),role TEXT NOT NULL,content TEXT NOT NULL,created_at REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS pending_inputs(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),content TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'queued',created_at REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),status TEXT NOT NULL,version INTEGER NOT NULL,stage INTEGER NOT NULL,error TEXT,session_id TEXT,snapshot TEXT NOT NULL DEFAULT '{}',created_at REAL NOT NULL,finished_at REAL);
         CREATE UNIQUE INDEX IF NOT EXISTS task_active_run ON runs(task_id) WHERE status IN ('queued','running','stopping');
         CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,task_id TEXT NOT NULL REFERENCES tasks(id),run_id TEXT,kind TEXT NOT NULL,data TEXT NOT NULL,created_at REAL NOT NULL);

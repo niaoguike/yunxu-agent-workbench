@@ -29,8 +29,10 @@ class RuntimeManager:
 
     async def readiness(self):
         mode = self.settings.runner
+        if mode == 'disabled':
+            return [dict(engine=e, available=False, reason='Runner disabled') for e in ('codex', 'claude')]
         available = mode == 'trusted-local' or (mode == 'docker' and shutil.which('docker') is not None)
-        return [dict(engine=e, available=available and (mode == 'docker' or ok), reason=('Container image and credentials must be provisioned' if mode == 'docker' else 'Executable and authentication are checked when starting a run') if available else 'Runner disabled or Docker unavailable') for e, ok in [('codex', bool(shutil.which(self.settings.codex_command))), ('claude', importlib.util.find_spec('claude_agent_sdk') is not None)]]
+        return [dict(engine=e, available=available and (mode == 'docker' or ok), reason=('Container image and credentials must be provisioned' if mode == 'docker' else 'Executable and authentication are checked when starting a run') if available else 'Runner disabled or Docker unavailable') for e, ok in [('codex', bool(shutil.which(self.settings.codex_command))), ('claude', available and importlib.util.find_spec('claude_agent_sdk') is not None)]]
 
     async def execute(self, request):
         if self.settings.runner not in ('docker', 'trusted-local'):
@@ -82,3 +84,5 @@ class RuntimeManager:
             raise ValueError('Unknown decision')
         if run_id in self.processes:
             await self._send(run_id, {'approval_id': approval_id, 'decision': decision})
+
+

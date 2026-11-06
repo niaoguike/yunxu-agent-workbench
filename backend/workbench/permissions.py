@@ -48,6 +48,11 @@ NATIVE_CLAUDE_TOOLS = {
 
 
 def claude_needs_human(mode: str, tool: str, inputs: dict, workspace: str) -> bool:
+    if mode == "auto" and tool.startswith("mcp__workbench__"):
+        from .bridge import TOOLS
+
+        if tool.removeprefix("mcp__workbench__") in {entry["name"] for entry in TOOLS}:
+            return False
     if mode != "auto" or tool not in NATIVE_CLAUDE_TOOLS:
         return True
     for key in ("file_path", "notebook_path", "path"):

@@ -6,9 +6,13 @@ import sys
 import uuid
 import threading
 import os
+import secrets
+import hmac
+import re
 from pathlib import Path
 from .permissions import codex_permissions, claude_needs_human
 from .loop_guard import ToolLoopGuard
+from .loop_review import LoopReviewMonitor, SCHEMA
 
 
 def emit(kind, **data):
@@ -42,13 +46,27 @@ async def main():
         Path(os.environ["HOME"]).mkdir(parents=True, exist_ok=True)
         Path(os.environ["CODEX_HOME"]).mkdir(parents=True, exist_ok=True)
     approvals = {}
+    platform_calls = {}
+    bridge_server = None
     stop = asyncio.Event()
     guard = ToolLoopGuard()
     guard_error = None
+    monitor = LoopReviewMonitor() if request.get("adaptive_loop_review") else None
 
     def inspect_tool(tool, inputs, result, failed=False):
         nonlocal guard_error
         verdict = guard.observe(tool, inputs, result, failed=failed)
+        if monitor:
+            review = monitor.observe(tool, inputs, result, failed)
+            if review:
+                emit("loop_review_request", **review)
+            if (
+                verdict
+                and verdict["decision"] == "stop"
+                and guard.actions < guard.action_limit
+            ):
+                guard.stopped = False
+                verdict = None
         if verdict:
             emit("loop_guard", **verdict)
             if verdict["decision"] == "stop":
@@ -57,6 +75,7 @@ async def main():
         return verdict
 
     async def controls():
+        nonlocal guard_error
         while True:
             line = await lines.get()
             if line is None:
@@ -65,6 +84,20 @@ async def main():
             value = json.loads(line)
             if value.get("stop"):
                 stop.set()
+                for future in platform_calls.values():
+                    if not future.done():
+                        future.set_result({"ok": False, "error": "任务已停止"})
+            elif value.get("loop_review_result") and monitor and not stop.is_set():
+                result = monitor.apply(value["loop_review_result"], value["result"])
+                if result:
+                    emit("loop_review", **result)
+                    if result["decision"] == "stop":
+                        guard_error = "重复工具调用复核停止：" + result["reason"]
+                        stop.set()
+            elif value.get("tool_result") in platform_calls:
+                future = platform_calls[value["tool_result"]]
+                if not future.done():
+                    future.set_result(value["result"])
             elif (
                 value.get("approval_id") in approvals
                 and not approvals[value["approval_id"]].done()
@@ -72,9 +105,67 @@ async def main():
                 approvals[value["approval_id"]].set_result(value["decision"])
 
     control = asyncio.create_task(controls())
+    if request.get("platform_bridge"):
+        bridge_token = secrets.token_urlsafe(32)
+
+        async def handle_bridge(reader, writer):
+            call_id = None
+            try:
+                raw = await asyncio.wait_for(reader.readline(), 10)
+                value = json.loads(raw)
+                if not hmac.compare_digest(str(value.get("token", "")), bridge_token):
+                    raise ValueError("Unauthorized bridge request")
+                if stop.is_set():
+                    raise ValueError("任务已停止")
+                from .bridge import available_tools
+
+                allowed = {
+                    tool["name"]
+                    for tool in available_tools(request.get("bridge_role", "leader"))
+                }
+                if value.get("name") not in allowed or not isinstance(
+                    value.get("arguments"), dict
+                ):
+                    raise ValueError("平台工具或参数不可用")
+                call_id = str(uuid.uuid4())
+                future = loop.create_future()
+                platform_calls[call_id] = future
+                emit(
+                    "platform_tool",
+                    call_id=call_id,
+                    name=value["name"],
+                    arguments=value["arguments"],
+                )
+                result = await asyncio.wait_for(future, 35)
+            except Exception as error:
+                result = {"ok": False, "error": str(error) or "Bridge request failed"}
+            finally:
+                if call_id:
+                    platform_calls.pop(call_id, None)
+            writer.write((json.dumps(result, ensure_ascii=True) + "\n").encode())
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+
+        bridge_server = await asyncio.start_server(
+            handle_bridge, "127.0.0.1", 0, limit=131072
+        )
+        port = bridge_server.sockets[0].getsockname()[1]
+        request["mcp_servers"] = {
+            **request.get("mcp_servers", {}),
+            "workbench": {
+                "command": sys.executable,
+                "args": ["-m", "workbench.bridge"],
+                "env": {
+                    "WORKBENCH_BRIDGE_ENDPOINT": f"127.0.0.1:{port}",
+                    "WORKBENCH_BRIDGE_TOKEN": bridge_token,
+                    "WORKBENCH_BRIDGE_ROLE": request.get("bridge_role", "leader"),
+                },
+            },
+        }
 
     async def permission(tool, details):
-        if stop.is_set():
+        if stop.is_set() or request.get("review_only"):
             return "decline"
         key = str(uuid.uuid4())
         future = asyncio.get_running_loop().create_future()
@@ -164,6 +255,13 @@ async def main():
                 max_turns=40,
                 max_budget_usd=5,
             )
+            if request.get("review_only"):
+                options.tools = []
+                options.mcp_servers = {}
+                options.hooks = {}
+                options.permission_mode = "dontAsk"
+                options.max_turns = 1
+                options.output_format = {"type": "json_schema", "schema": SCHEMA}
             async with ClaudeSDKClient(options=options) as client:
 
                 async def interrupt():
@@ -181,6 +279,15 @@ async def main():
                                 if isinstance(block, TextBlock):
                                     emit("message", text=block.text)
                         elif isinstance(msg, ResultMessage):
+                            if request.get("review_only") and getattr(
+                                msg, "structured_output", None
+                            ):
+                                emit(
+                                    "message",
+                                    text=json.dumps(
+                                        msg.structured_output, ensure_ascii=True
+                                    ),
+                                )
                             emit("session", session_id=msg.session_id)
                             emit(
                                 "completed",
@@ -254,12 +361,31 @@ async def main():
                                 future.set_exception(RuntimeError(str(msg["error"])))
                             else:
                                 future.set_result(msg.get("result", {}))
+                    elif (
+                        "id" not in msg
+                        and thread
+                        and msg.get("params", {}).get("threadId") not in (None, thread)
+                    ):
+                        if msg["method"] in {"turn/started", "turn/completed"}:
+                            emit(
+                                "subagent_activity",
+                                thread_id=msg["params"]["threadId"],
+                                event=msg["method"],
+                            )
+                        continue
                     elif "id" in msg:
                         task = asyncio.create_task(respond(msg))
                         tasks.add(task)
                         task.add_done_callback(tasks.discard)
                     elif msg["method"] == "item/agentMessage/delta":
                         emit("delta", text=msg["params"]["delta"])
+                    elif msg["method"] == "thread/tokenUsage/updated":
+                        usage = msg.get("params", {}).get("tokenUsage", {})
+                        emit(
+                            "context_usage",
+                            context_tokens=usage.get("last", {}).get("totalTokens"),
+                            context_window=usage.get("modelContextWindow"),
+                        )
                     elif msg["method"] == "error":
                         error = msg.get("params", {}).get("error", {})
                         emit(
@@ -283,6 +409,11 @@ async def main():
                         )
                     elif msg["method"] in {"item/started", "item/completed"}:
                         item = msg.get("params", {}).get("item", {})
+                        if (
+                            msg["method"] == "item/completed"
+                            and item.get("type") == "contextCompaction"
+                        ):
+                            emit("context_compacted", item_id=item.get("id"))
                         if item.get("type") in {
                             "commandExecution",
                             "fileChange",
@@ -349,7 +480,66 @@ async def main():
                 if request["instructions"]:
                     params["developerInstructions"] = request["instructions"]
                 if request["mcp_servers"]:
-                    params["config"] = {"mcp_servers": request["mcp_servers"]}
+                    servers = dict(request["mcp_servers"])
+                    if request.get("platform_bridge"):
+                        servers["workbench"] = {
+                            **servers["workbench"],
+                            "default_tools_approval_mode": "approve"
+                            if permission_mode == "auto"
+                            else "prompt",
+                        }
+                    params["config"] = {"mcp_servers": servers}
+                if request.get("platform_bridge"):
+                    params.setdefault("config", {})["project_doc_max_bytes"] = 0
+                if request.get("review_only"):
+                    effective = (
+                        await rpc("config/read", {"includeLayers": False})
+                    ).get("config", {})
+                    isolated = {
+                        "web_search": "disabled",
+                        "include_apply_patch_tool": False,
+                        "project_doc_max_bytes": 0,
+                        "memories.generate_memories": False,
+                        "memories.use_memories": False,
+                    }
+                    for feature in (
+                        "shell_tool",
+                        "unified_exec",
+                        "shell_snapshot",
+                        "view_image",
+                        "code_mode",
+                        "code_mode_only",
+                        "js_repl",
+                        "browser_use",
+                        "computer_use",
+                        "image_generation",
+                        "multi_agent",
+                        "multi_agent_v2",
+                        "apps",
+                        "remote_plugin",
+                    ):
+                        isolated["features." + feature] = False
+                    for name in effective.get("mcp_servers", {}):
+                        key = (
+                            name
+                            if re.fullmatch(r"[A-Za-z0-9_-]+", name)
+                            else json.dumps(name)
+                        )
+                        isolated["mcp_servers." + key + ".enabled"] = False
+                    for name in effective.get("plugins", {}):
+                        key = (
+                            name
+                            if re.fullmatch(r"[A-Za-z0-9_-]+", name)
+                            else json.dumps(name)
+                        )
+                        isolated["plugins." + key + ".enabled"] = False
+                    params.update(
+                        approvalPolicy="never",
+                        sandbox="read-only",
+                        ephemeral=True,
+                        config=isolated,
+                    )
+                    params.pop("approvalsReviewer", None)
                 if request["session_id"]:
                     params["threadId"] = request["session_id"]
                 try:
@@ -365,6 +555,10 @@ async def main():
                         )
                         params.pop("approvalsReviewer", None)
                         params.update(fallback)
+                        if request.get("platform_bridge"):
+                            params["config"]["mcp_servers"]["workbench"][
+                                "default_tools_approval_mode"
+                            ] = "prompt"
                         emit(
                             "diagnostic",
                             message="Native auto review unavailable; falling back to human approval within workspace-write",
@@ -404,11 +598,18 @@ async def main():
                             if "approvalsReviewer" in params
                             else {}
                         ),
-                        "sandboxPolicy": {
+                        "sandboxPolicy": {"type": "readOnly", "networkAccess": False}
+                        if request.get("review_only")
+                        else {
                             "type": "workspaceWrite",
                             "writableRoots": [workspace],
                             "networkAccess": False,
                         },
+                        **(
+                            {"outputSchema": SCHEMA}
+                            if request.get("review_only")
+                            else {}
+                        ),
                     },
                 )
                 turn = result["turn"]["id"]
@@ -436,6 +637,12 @@ async def main():
         emit("completed", status="failed", error=str(exc))
     finally:
         control.cancel()
+        if bridge_server:
+            bridge_server.close()
+            await bridge_server.wait_closed()
+        for future in platform_calls.values():
+            if not future.done():
+                future.cancel()
 
 
 if __name__ == "__main__":

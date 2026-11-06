@@ -49,6 +49,7 @@ class TaskInput(BaseModel):
     engine: Literal["codex", "claude"] = "codex"
     model: str | None = Field(default=None, max_length=120)
     require_acceptance: bool = False
+    allow_collaboration: bool = False
     permission_mode: Literal["auto", "ask"] = "auto"
 
 
@@ -57,11 +58,16 @@ class TaskPatch(BaseModel):
     engine: Literal["codex", "claude"] | None = None
     model: str | None = Field(default=None, max_length=120)
     require_acceptance: bool | None = None
+    allow_collaboration: bool | None = None
     permission_mode: Literal["auto", "ask"] | None = None
 
 
 class Content(BaseModel):
     content: str = Field(min_length=1, max_length=100000)
+
+
+class AssignmentInput(Content):
+    assignment_id: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class GateDecision(BaseModel):
@@ -337,7 +343,7 @@ def create_app(settings: Settings | None = None, runtime=None):
     def insert_task(project_id, body, member_id=None):
         task_id = uid()
         store.execute(
-            "INSERT INTO tasks(id,project_id,title,mode,engine,model,member_id,created_at,require_acceptance,permission_mode) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO tasks(id,project_id,title,mode,engine,model,member_id,created_at,require_acceptance,permission_mode,allow_collaboration) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (
                 task_id,
                 project_id,
@@ -349,6 +355,7 @@ def create_app(settings: Settings | None = None, runtime=None):
                 now(),
                 body.require_acceptance,
                 body.permission_mode,
+                body.allow_collaboration,
             ),
         )
         return store.one("SELECT * FROM tasks WHERE id=?", (task_id,))
@@ -395,14 +402,17 @@ def create_app(settings: Settings | None = None, runtime=None):
             return task
         for key, value in changes.items():
             store.execute(f"UPDATE tasks SET {key}=? WHERE id=?", (value, task_id))
-        if set(changes) == {"permission_mode"}:
+        if set(changes) <= {"permission_mode", "allow_collaboration"}:
             store.execute("UPDATE tasks SET session_id=NULL WHERE id=?", (task_id,))
             store.event(
                 task_id,
                 "permission_mode_changed",
                 {
                     "previous": task["permission_mode"],
-                    "mode": changes["permission_mode"],
+                    "mode": changes.get("permission_mode", task["permission_mode"]),
+                    "allow_collaboration": changes.get(
+                        "allow_collaboration", task["allow_collaboration"]
+                    ),
                     "effective": "next native run; workflow gates unchanged",
                 },
             )
@@ -894,6 +904,8 @@ def create_app(settings: Settings | None = None, runtime=None):
         invalidate_project_gates(project_id)
 
     def validate_extension(body):
+        if body.kind == "mcp" and body.name == "workbench":
+            raise HTTPException(400, "workbench 是保留的平台连接名称")
         if body.kind == "mcp":
             try:
                 config = json.loads(body.content)
@@ -988,58 +1000,60 @@ def create_app(settings: Settings | None = None, runtime=None):
     @app.get("/api/projects/{project_id}/members")
     async def members(project_id: str, owner=Depends(user)):
         project_owned(project_id, owner)
-        return store.all(
+        entries = store.all(
             "SELECT * FROM members WHERE project_id=? ORDER BY created_at",
             (project_id,),
         )
+        for member in entries:
+            latest = store.one(
+                "SELECT id,status,parent_task_id FROM tasks WHERE member_id=? ORDER BY created_at DESC LIMIT 1",
+                (member["id"],),
+            )
+            member.update(
+                status=latest["status"] if latest else "idle",
+                task_id=latest["id"] if latest else None,
+                parent_task_id=latest["parent_task_id"] if latest else None,
+            )
+        return entries
 
     @app.post("/api/projects/{project_id}/members", status_code=201)
     async def create_member(project_id: str, body: MemberInput, owner=Depends(user)):
         project_owned(project_id, owner)
-        member_id = uid()
-        store.execute(
-            "INSERT INTO members VALUES(?,?,?,?,?,?)",
-            (member_id, project_id, body.name, body.role, body.engine, now()),
-        )
-        return store.one("SELECT * FROM members WHERE id=?", (member_id,))
+        try:
+            return workflow.collaboration.create(
+                project_id, body.name, body.role, body.engine
+            )
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
 
     @app.post("/api/members/{member_id}/assign", status_code=201)
-    async def assign(member_id: str, body: Content, owner=Depends(user)):
+    async def assign(member_id: str, body: AssignmentInput, owner=Depends(user)):
         member = child_owned("members", member_id, owner)
-        ensure_project_idle(member["project_id"])
-        task = insert_task(
-            member["project_id"],
-            TaskInput(
-                title=f"{member['name']} · {body.content[:60]}", engine=member["engine"]
-            ),
-            member_id,
-        )
-        previous = store.one(
-            "SELECT session_id FROM tasks WHERE member_id=? AND id!=? AND session_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",
-            (member_id, task["id"]),
-        )
-        if previous:
-            store.execute(
-                "UPDATE tasks SET session_id=? WHERE id=?",
-                (previous["session_id"], task["id"]),
+        if store.one(
+            "SELECT id FROM tasks WHERE project_id=? AND member_id IS NULL AND status IN ('running','queued','stopping','waiting_permission')",
+            (member["project_id"],),
+        ):
+            raise HTTPException(409, "主任务正在执行；请由主 Agent 指派或等待其停止")
+        try:
+            receipt = workflow.collaboration.dispatch(
+                member, body.content, body.assignment_id or uid()
             )
-        root = project_workspace(member["project_id"])
-        destination = workflow.workspace(task)
-        for file in inventory(root):
-            source = checked_path(root, file["path"])
-            target = checked_path(destination, file["path"])
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, target)
-            store.execute(
-                "INSERT INTO baselines VALUES(?,?,?)",
-                (task["id"], file["path"], digest(source)),
-            )
-        store.execute(
-            "INSERT INTO messages VALUES(?,?,?,?,?)",
-            (uid(), task["id"], "user", member["role"] + "\n\n" + body.content, now()),
-        )
-        workflow.enqueue(task["id"])
-        return task
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+        return {
+            **store.one("SELECT * FROM tasks WHERE id=?", (receipt["task_id"],)),
+            "dispatch": receipt,
+        }
+
+    @app.post("/api/projects/{project_id}/stop")
+    async def stop_all(project_id: str, owner=Depends(user)):
+        project_owned(project_id, owner)
+        for task in store.all(
+            "SELECT id FROM tasks WHERE project_id=? AND parent_task_id IS NULL",
+            (project_id,),
+        ):
+            await workflow.stop(task["id"])
+        return {"ok": True, "scope": "project", "status": "stop_requested"}
 
     @app.post("/api/projects/{project_id}/integrate/{task_id}")
     async def integrate(

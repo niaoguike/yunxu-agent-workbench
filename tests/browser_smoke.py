@@ -59,6 +59,7 @@ def main():
             )
         ).to_be_visible()
         page.get_by_role("button", name="任务设置", exact=True).click()
+        page.get_by_label("允许 Agent 使用持久协作者", exact=False).check()
         page.get_by_label("工具授权策略").select_option("ask")
         page.locator(".dialog").get_by_role("button", name="保存", exact=True).click()
         expect(page.locator(".taskmeta")).to_contain_text("任务")
@@ -68,6 +69,14 @@ def main():
         page.screenshot(path=str(path), full_page=True)
         page.reload()
         expect(page.locator("aside")).to_contain_text("端到端验证项目")
+        page.locator("aside").get_by_role(
+            "button", name="端到端验证项目", exact=False
+        ).click()
+        page.get_by_role("button", name="研究与需求交付", exact=False).click()
+        page.get_by_role("button", name="任务设置", exact=True).click()
+        expect(
+            page.get_by_label("允许 Agent 使用持久协作者", exact=False)
+        ).to_be_checked()
         assert not errors, errors
         browser.close()
         print(

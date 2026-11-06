@@ -5,6 +5,8 @@ import json
 import shutil
 import sys
 import uuid
+import os
+import signal
 
 
 @dataclass
@@ -18,6 +20,10 @@ class RunRequest:
     instructions: str = ""
     mcp_servers: dict = field(default_factory=dict)
     permission_mode: str = "auto"
+    platform_bridge: bool = False
+    bridge_role: str = "leader"
+    adaptive_loop_review: bool = False
+    review_only: bool = False
 
 
 @dataclass
@@ -137,6 +143,7 @@ class RuntimeManager:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
                 limit=4 * 1024 * 1024,
+                start_new_session=os.name != "nt",
             )
             self.processes[request.run_id] = proc
             self.locks[request.run_id] = asyncio.Lock()
@@ -165,11 +172,32 @@ class RuntimeManager:
         except Exception as exc:
             yield RuntimeEvent("completed", {"status": "failed", "error": str(exc)})
         finally:
+            if proc and proc.returncode is None:
+                try:
+                    proc.stdin.write(b'{"stop":true}\n')
+                    await proc.stdin.drain()
+                    await asyncio.wait_for(proc.wait(), 5)
+                except (asyncio.TimeoutError, BrokenPipeError, ConnectionError):
+                    if proc.returncode is None:
+                        if os.name == "nt":
+                            killer = await asyncio.create_subprocess_exec(
+                                "taskkill",
+                                "/PID",
+                                str(proc.pid),
+                                "/T",
+                                "/F",
+                                stdout=asyncio.subprocess.DEVNULL,
+                                stderr=asyncio.subprocess.DEVNULL,
+                            )
+                            await killer.wait()
+                        else:
+                            try:
+                                os.killpg(proc.pid, signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                        await proc.wait()
             self.processes.pop(request.run_id, None)
             self.locks.pop(request.run_id, None)
-            if proc and proc.returncode is None:
-                proc.kill()
-                await proc.wait()
             if self.settings.runner == "docker":
                 cleanup = await asyncio.create_subprocess_exec(
                     "docker",
@@ -202,3 +230,14 @@ class RuntimeManager:
             await self._send(run_id, {"approval_id": approval_id, "decision": decision})
         else:
             raise ValueError("Run is no longer active")
+
+    async def respond_tool(self, run_id, call_id, result):
+        if run_id not in self.processes:
+            raise ValueError("Run is no longer active")
+        await self._send(run_id, {"tool_result": call_id, "result": result})
+
+    async def respond_review(self, run_id, review_id, result):
+        if run_id in self.processes:
+            await self._send(
+                run_id, {"loop_review_result": review_id, "result": result}
+            )

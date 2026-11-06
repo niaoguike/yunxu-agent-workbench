@@ -166,6 +166,10 @@ function App() {
         }
         const list = await api(`/projects/${t.project_id}/tasks`);
         if (active) T(list);
+        if (active && selection.current.tab === "协作") {
+          const members = await api(`/projects/${t.project_id}/members`);
+          if (active && selection.current.tab === "协作") I(members);
+        }
         const terminal =
           t.runs
             ?.filter(
@@ -209,6 +213,7 @@ function App() {
         const t = await api(`/projects/${project!.id}/tasks`, "POST", {
           ...d,
           require_acceptance: d.require_acceptance === "on",
+          allow_collaboration: d.allow_collaboration === "on",
         });
         await loadTasks();
         TT(t);
@@ -216,6 +221,7 @@ function App() {
         await api(`/tasks/${task!.id}`, "PATCH", {
           ...d,
           require_acceptance: d.require_acceptance === "on",
+          allow_collaboration: d.allow_collaboration === "on",
         });
         await refresh();
       } else if (modal === "个人指令") {
@@ -312,6 +318,17 @@ function App() {
             {project && (
               <>
                 <button onClick={() => M("设置")}>项目设置</button>
+                <button
+                  onClick={() =>
+                    act(async () => {
+                      await api(`/projects/${project.id}/stop`, "POST");
+                      await refresh();
+                      N("已请求停止项目及全部协作者；请等待实际终态");
+                    })
+                  }
+                >
+                  停止项目执行
+                </button>
                 {task && (
                   <button onClick={() => M("任务设置")}>任务设置</button>
                 )}
@@ -395,8 +412,12 @@ function App() {
                 >
                   <b>{t.title}</b>
                   <small>
-                    {t.mode === "development" ? "旧版流程" : "任务"} ·{" "}
-                    {status[t.status] || t.status}
+                    {t.member_id
+                      ? "协作者"
+                      : t.mode === "development"
+                        ? "旧版流程"
+                        : "任务"}{" "}
+                    · {status[t.status] || t.status}
                   </small>
                 </button>
               ))}
@@ -880,6 +901,25 @@ function App() {
                           <>
                             <b>{v.name || v.category}</b>
                             <p>{v.content || v.role}</p>
+                            {tab === "协作" && (
+                              <>
+                                <small>
+                                  {status[v.status] || v.status || "空闲"}
+                                  {v.parent_task_id ? " · 主任务已关联" : ""}
+                                </small>
+                                {v.task_id && (
+                                  <button
+                                    onClick={() =>
+                                      act(async () => {
+                                        TT(await api(`/tasks/${v.task_id}`));
+                                      })
+                                    }
+                                  >
+                                    查看成员任务
+                                  </button>
+                                )}
+                              </>
+                            )}
                             {tab === "扩展" && (
                               <>
                                 <small>
@@ -1123,6 +1163,14 @@ function App() {
             ) : modal === "任务设置" ? (
               <>
                 <label>
+                  <input
+                    type="checkbox"
+                    name="allow_collaboration"
+                    defaultChecked={!!task?.allow_collaboration}
+                  />
+                  允许 Agent 使用持久协作者（最多 3 名，同时执行 2 名）
+                </label>
+                <label>
                   工具授权策略
                   <select
                     name="permission_mode"
@@ -1199,6 +1247,10 @@ function App() {
                 </label>
                 {modal === "任务" && (
                   <>
+                    <label>
+                      <input type="checkbox" name="allow_collaboration" />
+                      允许 Agent 使用持久协作者（最多 3 名，同时执行 2 名）
+                    </label>
                     <label>
                       工具授权策略
                       <select name="permission_mode" defaultValue="auto">

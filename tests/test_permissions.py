@@ -1,4 +1,3 @@
-
 import pytest
 
 from workbench.permissions import codex_permissions, claude_needs_human

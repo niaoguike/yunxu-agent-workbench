@@ -43,6 +43,9 @@ class Store:
         CREATE TABLE IF NOT EXISTS baselines(task_id TEXT NOT NULL REFERENCES tasks(id),path TEXT NOT NULL,digest TEXT,PRIMARY KEY(task_id,path));
         CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),run_id TEXT NOT NULL REFERENCES runs(id),path TEXT NOT NULL,digest TEXT NOT NULL,size INTEGER NOT NULL,created_at REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS checks(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),run_id TEXT NOT NULL REFERENCES runs(id),name TEXT NOT NULL,status TEXT NOT NULL,evidence TEXT NOT NULL,source TEXT NOT NULL,created_at REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS assignments(id TEXT PRIMARY KEY,scope TEXT NOT NULL,assignment_key TEXT NOT NULL,payload_hash TEXT NOT NULL,parent_task_id TEXT REFERENCES tasks(id),member_id TEXT NOT NULL REFERENCES members(id),task_id TEXT NOT NULL REFERENCES tasks(id),created_at REAL NOT NULL,UNIQUE(scope,assignment_key));
+        CREATE TABLE IF NOT EXISTS member_reports(id TEXT PRIMARY KEY,task_id TEXT UNIQUE NOT NULL REFERENCES tasks(id),parent_task_id TEXT REFERENCES tasks(id),status TEXT NOT NULL,content TEXT NOT NULL,created_at REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS memory_context_state(project_id TEXT NOT NULL REFERENCES projects(id),engine TEXT NOT NULL,session_id TEXT NOT NULL,epoch INTEGER NOT NULL DEFAULT 0,fired TEXT NOT NULL DEFAULT '[]',PRIMARY KEY(project_id,engine,session_id));
         """)
         columns = {
             row["name"] for row in self.connection.execute("PRAGMA table_info(tasks)")
@@ -54,6 +57,14 @@ class Store:
         if "permission_mode" not in columns:
             self.connection.execute(
                 "ALTER TABLE tasks ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'auto'"
+            )
+        if "parent_task_id" not in columns:
+            self.connection.execute(
+                "ALTER TABLE tasks ADD COLUMN parent_task_id TEXT REFERENCES tasks(id)"
+            )
+        if "allow_collaboration" not in columns:
+            self.connection.execute(
+                "ALTER TABLE tasks ADD COLUMN allow_collaboration INTEGER NOT NULL DEFAULT 0"
             )
         project_columns = {
             row["name"]

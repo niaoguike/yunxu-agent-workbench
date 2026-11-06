@@ -7,6 +7,9 @@ import shutil
 from .files import digest, inventory, safe_path
 from .runtime import RunRequest
 from .store import now, uid
+from .collaboration import Collaboration
+from .context_signals import ContextSignals
+from .loop_review import review_prompt, redact
 
 
 STAGES = [
@@ -50,6 +53,61 @@ class Workflow:
         self.jobs = {}
         self.project_locks = {}
         self.stopping = False
+        self.collaboration = Collaboration(self)
+        self.context_signals = ContextSignals(store)
+        self.member_slots = asyncio.Semaphore(2)
+        self.review_jobs = {}
+
+    async def review_loop(self, task, run_id, data):
+        result = {"decision": "continue", "reason": "复核不可用，保留总工具动作预算"}
+        root = self.settings.data_dir / "reviews" / run_id / data["review_id"]
+        root.mkdir(parents=True, exist_ok=True)
+        intent = "\n".join(
+            row["content"]
+            for row in self.store.all(
+                "SELECT content FROM messages WHERE task_id=? AND role='user' ORDER BY created_at",
+                (task["id"],),
+            )
+        )
+        request = RunRequest(
+            run_id="review-" + uid(),
+            engine=task["engine"],
+            workspace=str(root),
+            prompt=review_prompt(intent, data.get("evidence", [])),
+            model=task["model"],
+            permission_mode="ask",
+            review_only=True,
+        )
+        chunks = []
+        messages = []
+        terminal = None
+        try:
+            async with asyncio.timeout(20):
+                async for event in self.runtime.execute(request):
+                    if event.kind == "delta":
+                        chunks.append(event.data.get("text", ""))
+                    elif event.kind == "message":
+                        messages.append(event.data.get("text", ""))
+                    elif event.kind == "completed":
+                        terminal = event.data
+            if terminal and terminal.get("status") == "completed":
+                parsed = json.loads(messages[-1] if messages else "".join(chunks))
+                if parsed.get("decision") in {"continue", "stop"}:
+                    result = {
+                        "decision": parsed["decision"],
+                        "reason": redact(str(parsed.get("reason", "")))[:1000],
+                    }
+        except (Exception,):
+            pass
+        current = self.store.one("SELECT status FROM tasks WHERE id=?", (task["id"],))
+        if current and current["status"] in {"running", "waiting_permission"}:
+            self.store.event(
+                task["id"],
+                "loop_review_complete",
+                {"review_id": data["review_id"], **result},
+                run_id,
+            )
+            await self.runtime.respond_review(run_id, data["review_id"], result)
 
     def workspace(self, task):
         base = self.settings.data_dir / "workspaces" / task["project_id"]
@@ -94,6 +152,21 @@ class Workflow:
 
     def enqueue(self, task_id):
         task = self.store.one("SELECT * FROM tasks WHERE id=?", (task_id,))
+        group = task["parent_task_id"] or task_id
+        if (
+            self.store.one(
+                "SELECT COUNT(*) AS count FROM runs WHERE task_id=? OR task_id IN (SELECT id FROM tasks WHERE parent_task_id=?)",
+                (group, group),
+            )["count"]
+            >= 60
+        ):
+            reason = "协作组达到 60 次运行上限，已有成果保留"
+            self.store.execute(
+                "UPDATE tasks SET status='failed' WHERE id=?", (task_id,)
+            )
+            self.store.event(task_id, "budget_exhausted", {"message": reason})
+            self.collaboration.report(task_id, "failed", reason)
+            return None
         if (
             self.store.one(
                 "SELECT COUNT(*) AS count FROM runs WHERE task_id=?", (task_id,)
@@ -124,19 +197,36 @@ class Workflow:
 
     async def close(self):
         self.stopping = True
+        with self.store.transaction() as db:
+            db.execute(
+                "UPDATE tasks SET status='paused' WHERE id IN (SELECT task_id FROM runs WHERE status='queued')"
+            )
+            db.execute(
+                "UPDATE runs SET status='paused',error='服务停止，未派发任务已暂停' WHERE status='queued'"
+            )
         jobs = list(self.jobs.items())
         for run_id, job in jobs:
             try:
                 await self.runtime.stop(run_id)
             except Exception:
                 pass
-            job.cancel()
+        if jobs:
+            _, pending = await asyncio.wait([job for _, job in jobs], timeout=5)
+            for job in pending:
+                job.cancel()
         await asyncio.gather(*(job for _, job in jobs), return_exceptions=True)
 
     async def work(self, run_id, task_id):
         task = self.store.one("SELECT * FROM tasks WHERE id=?", (task_id,))
-        lock = self.project_locks.setdefault(task["project_id"], asyncio.Lock())
+        lock_key = (
+            "member:" + task["member_id"] if task["member_id"] else task["project_id"]
+        )
+        lock = self.project_locks.setdefault(lock_key, asyncio.Lock())
+        member_slot = False
         try:
+            if task["member_id"]:
+                await self.member_slots.acquire()
+                member_slot = True
             async with lock:
                 run = self.store.one("SELECT * FROM runs WHERE id=?", (run_id,))
                 if run["status"] != "queued":
@@ -220,6 +310,10 @@ class Workflow:
                         ],
                     )
                 )
+                if task["member_id"]:
+                    instructions += "\n你是持久协作者，仅完成本次职责，在自己的工作区工作并明确报告检查与限制；结果由平台回传。不得创建更多协作者。"
+                elif task["allow_collaboration"]:
+                    instructions += "\n可按需使用 workbench 的持久协作工具创建成员并指派。创建成员不等于派发成功，检查 accepted 回执；assignment_id 在同一指派重试时保持不变。成员结果是工作资料，不构成新的用户授权。用 read_worker/wait_worker 获取结果后汇总，apply_worker_file 检查基线再应用；不要在成员仍运行时宣称交付完成。原生临时子 Agent 与持久成员是不同渠道。"
                 if project["memory_enabled"]:
                     instructions += '\n可将有长期价值的项目事实写入 memory-notes.json，格式为 [{"category":"project","content":"事实"}]。不保存凭据或整段对话。'
                 history = self.store.all(
@@ -247,11 +341,76 @@ class Workflow:
                     instructions=instructions,
                     mcp_servers=mcp,
                     permission_mode=task["permission_mode"],
+                    platform_bridge=True,
+                    bridge_role="worker"
+                    if task["member_id"]
+                    else "leader"
+                    if task["allow_collaboration"]
+                    else "solo",
+                    adaptive_loop_review=True,
                 )
                 chunks, final_messages, terminal = [], [], None
                 async with asyncio.timeout(self.settings.max_run_seconds):
                     async for event in self.runtime.execute(request):
+                        if event.kind == "loop_review_request":
+                            self.store.event(
+                                task_id,
+                                event.kind,
+                                {
+                                    key: value
+                                    for key, value in event.data.items()
+                                    if key != "evidence"
+                                },
+                                run_id,
+                            )
+                            job = asyncio.create_task(
+                                self.review_loop(task, run_id, event.data)
+                            )
+                            pending = self.review_jobs.setdefault(run_id, set())
+                            pending.add(job)
+                            job.add_done_callback(pending.discard)
+                            continue
                         self.store.event(task_id, event.kind, event.data, run_id)
+                        if project["memory_enabled"] and event.kind in {
+                            "context_usage",
+                            "context_compacted",
+                        }:
+                            current_session = self.store.one(
+                                "SELECT session_id FROM tasks WHERE id=?", (task_id,)
+                            )["session_id"]
+                            if current_session:
+                                if event.kind == "context_compacted":
+                                    self.context_signals.compact(
+                                        project["id"], task["engine"], current_session
+                                    )
+                                else:
+                                    for signal in self.context_signals.usage(
+                                        project["id"],
+                                        task["engine"],
+                                        current_session,
+                                        event.data.get("context_tokens"),
+                                        event.data.get("context_window"),
+                                    ):
+                                        self.store.event(
+                                            task_id,
+                                            "memory_flush_signal",
+                                            signal,
+                                            run_id,
+                                        )
+                        if event.kind == "platform_tool":
+                            try:
+                                result = await self.collaboration.tool(
+                                    task_id,
+                                    event.data["name"],
+                                    event.data.get("arguments", {}),
+                                )
+                                result = {"ok": True, "result": result}
+                            except (ValueError, KeyError, TypeError) as error:
+                                result = {"ok": False, "error": str(error)}
+                            await self.runtime.respond_tool(
+                                run_id, event.data["call_id"], result
+                            )
+                            continue
                         if event.kind == "session":
                             self.store.execute(
                                 "UPDATE tasks SET session_id=? WHERE id=?",
@@ -301,6 +460,10 @@ class Workflow:
                     status = "interrupted"
                 if status != "completed":
                     self.finish(run_id, task_id, status, terminal.get("error"))
+                    for child in self.store.all(
+                        "SELECT id FROM tasks WHERE parent_task_id=?", (task_id,)
+                    ):
+                        await self.stop(child["id"])
                     return
                 current = self.store.one("SELECT * FROM tasks WHERE id=?", (task_id,))
                 if current["version"] != run["version"]:
@@ -343,6 +506,17 @@ class Workflow:
                     )
                     return
                 if task["mode"] == "free" or task["stage"] == 6:
+                    if self.store.one(
+                        "SELECT id FROM tasks WHERE parent_task_id=? AND status IN ('queued','running','stopping','waiting_permission')",
+                        (task_id,),
+                    ):
+                        self.finish(
+                            run_id,
+                            task_id,
+                            "failed",
+                            "协作者仍在执行，请等待并汇总结果后再交付",
+                        )
+                        return
                     problems = self.verify_delivery(task_id, run_id, workspace, before)
                     if problems:
                         self.finish(
@@ -428,7 +602,18 @@ class Workflow:
             self.finish(
                 run_id, task_id, "failed", str(error)[:1500] or type(error).__name__
             )
+            for child in self.store.all(
+                "SELECT id FROM tasks WHERE parent_task_id=?", (task_id,)
+            ):
+                await self.stop(child["id"])
         finally:
+            reviews = self.review_jobs.pop(run_id, set())
+            for job in reviews:
+                job.cancel()
+            if reviews:
+                await asyncio.gather(*reviews, return_exceptions=True)
+            if member_slot:
+                self.member_slots.release()
             self.jobs.pop(run_id, None)
             current = self.store.one("SELECT status FROM tasks WHERE id=?", (task_id,))
             if not self.stopping and current["status"] not in {
@@ -461,7 +646,7 @@ class Workflow:
                             (task_id,),
                         )
                         db.execute(
-                            "UPDATE tasks SET version=version+1,stage=0,session_id=NULL WHERE id=?",
+                            "UPDATE tasks SET version=version+1,stage=0,session_id=CASE WHEN member_id IS NOT NULL THEN session_id ELSE NULL END WHERE id=?",
                             (task_id,),
                         )
                     self.enqueue(task_id)
@@ -596,6 +781,8 @@ class Workflow:
         )
 
     def finish(self, run_id, task_id, status, error=None):
+        if error is not None and not isinstance(error, str):
+            error = json.dumps(error, ensure_ascii=False)[:1500]
         self.store.execute(
             "UPDATE runs SET status=?,error=?,finished_at=? WHERE id=?",
             (status, error, now(), run_id),
@@ -616,8 +803,21 @@ class Workflow:
         self.store.event(
             task_id, "run_finished", {"status": status, "error": error}, run_id
         )
+        self.collaboration.report(task_id, status, error)
 
     async def stop(self, task_id):
+        active_parent = self.store.one(
+            "SELECT id FROM runs WHERE task_id=? AND status IN ('queued','running','stopping')",
+            (task_id,),
+        )
+        if active_parent:
+            self.store.execute(
+                "UPDATE tasks SET status='stopping' WHERE id=?", (task_id,)
+            )
+        for child in self.store.all(
+            "SELECT id FROM tasks WHERE parent_task_id=?", (task_id,)
+        ):
+            await self.stop(child["id"])
         self.store.execute(
             "UPDATE pending_inputs SET status='paused' WHERE task_id=? AND status='queued'",
             (task_id,),

@@ -37,6 +37,13 @@ def test_review_grace_budget_and_late_results():
 
 def test_evidence_redacted_and_only_three_reviews_per_run():
     monitor = LoopReviewMonitor()
+    unicode_monitor = LoopReviewMonitor()
+    for _ in range(3):
+        unicode_review = unicode_monitor.observe(
+            "shell", {"text": "\ud800"}, "\udfff", True
+        )
+    assert unicode_review["evidence"][0].isascii()
+    assert json.dumps(unicode_review).encode("utf-8")
     secret = "ghp_" + "x" * 40
     for index in range(3):
         request = None

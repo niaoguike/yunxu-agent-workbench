@@ -1,7 +1,7 @@
 import json
 
 from evaluations.cases import CASES, validate
-from evaluations.live import metrics
+from evaluations.live import metrics, policy_pass
 from evaluations.reliability import run as run_faults
 from evaluations.report import live_summary, loop_summary, require_complete
 
@@ -34,6 +34,9 @@ def test_billing_oracle_catches_original_bug(tmp_path):
 
 
 def test_usage_is_deduplicated_by_session_and_includes_auxiliary():
+    assert policy_pass([{"member_id": "worker"}, {"member_id": "worker"}], "team", 0)
+    assert not policy_pass([{"member_id": "one"}, {"member_id": "two"}], "team", 0)
+    assert not policy_pass([], "single", 1)
     events = [
         (
             "task",
@@ -124,10 +127,38 @@ def test_report_rejects_partial_or_duplicate_trials():
             require_complete(invalid, meta)
 
 
+def test_policy_correction_preserves_original_score_and_allows_repair(tmp_path):
+    from evaluations.reliability import fixture
+    from evaluations.report import audit_policy
+
+    flow, parent = fixture(tmp_path)
+    worker = flow.collaboration.create(parent["project_id"], "worker", "work", "codex")
+    flow.collaboration.dispatch(worker, "initial", "one", parent)
+    flow.collaboration.dispatch(worker, "repair", "two", parent)
+    rows = [
+        {
+            "task_id": parent["id"],
+            "mode": "team",
+            "native_subagent_events": 0,
+            "status": "delivered",
+            "timed_out": False,
+            "passed": False,
+            "checks": [{"name": "execution_policy", "passed": False}],
+        }
+    ]
+    audit_policy(rows, tmp_path)
+    assert rows[0]["passed"] is True
+    assert rows[0]["scoring_correction"]["raw_overall_passed"] is False
+    flow.store.connection.close()
+
+
 def test_report_exports_completed_evidence_without_raw_dialogue(tmp_path, monkeypatch):
     import sys
+    import hashlib
+    import pytest
     from workbench.store import Store
-    from evaluations.report import main
+    from evaluations.report import main, export_artifacts
+    from evaluations.verify import verify_rows
 
     live, loops, faults, output = [
         tmp_path / name for name in ("live", "loops", "faults", "report")
@@ -135,10 +166,20 @@ def test_report_exports_completed_evidence_without_raw_dialogue(tmp_path, monkey
     for folder in (live, loops, faults):
         folder.mkdir()
     Store(live / "data" / "workbench.sqlite3").connection.close()
+    workspace = live / "data" / "workspaces" / "fixture" / "main"
+    workspace.mkdir(parents=True)
+    raw = b'{"currency":"CNY","paid_order_count":5,"revenue":"39.50","customers":[{"customer":"Alice","orders":2,"revenue":"16.00"},{"customer":"Bob","orders":2,"revenue":"20.00"},{"customer":"Carol","orders":1,"revenue":"3.50"}]}'
+    (workspace / "summary.json").write_bytes(raw)
+    (workspace / "orders.csv").write_text(
+        CASES["csv"]["files"]["orders.csv"], encoding="utf-8"
+    )
+    (workspace / "checks.md").write_text("private check evidence")
     (live / "complete.json").write_text("{}")
     (loops / "complete.json").write_text("{}")
     (live / "metadata.json").write_text(
-        json.dumps({"cases": ["csv"], "modes": ["single"], "repeats": 1})
+        json.dumps(
+            {"cases": ["csv"], "modes": ["single"], "repeats": 1, "timeout": 300}
+        )
     )
     row = {
         "case": "csv",
@@ -149,6 +190,8 @@ def test_report_exports_completed_evidence_without_raw_dialogue(tmp_path, monkey
         "elapsed_seconds": 2,
         "tokens": None,
         "status": "delivered",
+        "artifacts": {"summary.json": hashlib.sha256(raw).hexdigest()},
+        "checks": validate("csv", workspace),
     }
     (live / "results.jsonl").write_text(json.dumps(row) + "\n")
     (loops / "results.json").write_text("[]")
@@ -166,6 +209,8 @@ def test_report_exports_completed_evidence_without_raw_dialogue(tmp_path, monkey
             str(faults),
             "--output",
             str(output),
+            "--diagnostic",
+            str(live),
         ],
     )
     main()
@@ -173,3 +218,17 @@ def test_report_exports_completed_evidence_without_raw_dialogue(tmp_path, monkey
     assert evidence["summary"]["live"]["single"]["passed"] == 1
     assert "events" not in evidence and "messages" not in evidence
     assert (output / "report.md").is_file()
+    assert (output / "artifacts/csv-single-1/summary.json").read_bytes() == raw
+    assert len(evidence["supplementary_diagnostics"]) == 1
+    assert (
+        output / "diagnostic/1/artifacts/csv-single-1/summary.json"
+    ).read_bytes() == raw
+    replay = verify_rows(evidence["live_rows"], output)[0]
+    assert (
+        replay["hashes_match"]
+        and replay["semantic_checks_match_record"]
+        and replay["semantic_all_pass"]
+    )
+    (workspace / "summary.json").write_text("changed after measurement")
+    with pytest.raises(ValueError):
+        export_artifacts([row], live / "data", output)

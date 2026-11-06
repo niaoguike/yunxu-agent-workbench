@@ -17,6 +17,13 @@ from workbench.config import Settings
 from .cases import CASES, VERSION, validate
 
 
+def policy_pass(assignments, mode, subagent_events):
+    return (
+        len({a["member_id"] for a in assignments}) == (1 if mode == "team" else 0)
+        and subagent_events == 0
+    )
+
+
 def metrics(events):
     sessions, models, tools = {}, set(), set()
     for task_id, event in events:
@@ -134,8 +141,7 @@ def run_case(client, settings, case_id, mode, repetition, timeout, output):
     checks.append(
         {
             "name": "execution_policy",
-            "passed": len(assignments) == (1 if mode == "team" else 0)
-            and stats["native_subagent_events"] == 0,
+            "passed": policy_pass(assignments, mode, stats["native_subagent_events"]),
         }
     )
     trace = output / f"{case_id}-{mode}-{repetition}.json"

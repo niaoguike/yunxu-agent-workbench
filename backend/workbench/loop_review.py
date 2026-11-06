@@ -47,7 +47,7 @@ class LoopReviewMonitor:
 
     def observe(self, tool, inputs, result, failed):
         raw = json.dumps(
-            [tool, inputs, result], sort_keys=True, ensure_ascii=False, default=str
+            [tool, inputs, result], sort_keys=True, ensure_ascii=True, default=str
         )
         fingerprint = hashlib.sha256(raw.encode()).hexdigest()
         if not failed or fingerprint != self.previous:

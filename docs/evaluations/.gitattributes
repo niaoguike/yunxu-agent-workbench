@@ -1,0 +1,2 @@
+# Preserve measured artifact bytes so SHA-256 checks survive Git checkout.
+**/artifacts/** -text

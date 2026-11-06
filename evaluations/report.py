@@ -1,13 +1,16 @@
 """Export sanitized evidence and a report; never substitutes generated scores for runs."""
 
 import argparse
+import hashlib
 import json
 import statistics
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
 
-from .cases import validate
+from .cases import CASES, validate
+from .live import policy_pass
+from workbench.files import safe_path
 
 
 def require_complete(rows, metadata):
@@ -22,6 +25,66 @@ def require_complete(rows, metadata):
         raise ValueError(
             "Missing or duplicate trials; refuse a partial/cherry-picked report"
         )
+
+
+def export_artifacts(rows, data_root, output):
+    for row in rows:
+        exported = {}
+        root = data_root / "workspaces" / row["project_id"] / "main"
+        for name in CASES[row["case"]]["artifacts"]:
+            if name == "checks.md":
+                continue  # Local command paths remain private.
+            source = safe_path(root, name)
+            if not source.is_file():
+                continue
+            raw = source.read_bytes()
+            expected = row.get("artifacts", {}).get(name)
+            if expected and hashlib.sha256(raw).hexdigest() != expected:
+                raise ValueError("Artifact changed after measurement: " + name)
+            relative = (
+                Path("artifacts")
+                / f"{row['case']}-{row['mode']}-{row['repetition']}"
+                / name
+            )
+            target = output / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(raw)
+            exported[name] = relative.as_posix()
+        row["exported_artifacts"] = exported
+
+
+def audit_policy(rows, data_root):
+    connection = sqlite3.connect(
+        f"file:{(data_root / 'workbench.sqlite3').resolve().as_posix()}?mode=ro",
+        uri=True,
+    )
+    for row in rows:
+        if not row.get("task_id"):
+            continue
+        assigned = [
+            {"member_id": member}
+            for (member,) in connection.execute(
+                "SELECT member_id FROM assignments WHERE parent_task_id=?",
+                (row["task_id"],),
+            )
+        ]
+        corrected = policy_pass(assigned, row["mode"], row["native_subagent_events"])
+        for check in row["checks"]:
+            if check["name"] == "execution_policy" and check["passed"] != corrected:
+                row["scoring_correction"] = {
+                    "version": "1.0.1",
+                    "raw_policy_passed": check["passed"],
+                    "raw_overall_passed": row["passed"],
+                    "corrected_policy_passed": corrected,
+                    "reason": "Exactly one persistent worker permits multiple repair assignments; raw results.jsonl retained unchanged",
+                }
+                check["passed"] = corrected
+                row["passed"] = (
+                    row["status"] == "delivered"
+                    and not row["timed_out"]
+                    and all(c["passed"] for c in row["checks"])
+                )
+    connection.close()
 
 
 def live_summary(rows):
@@ -98,7 +161,7 @@ def main():
     parser.add_argument("--live", type=Path, required=True)
     parser.add_argument("--loops", type=Path, required=True)
     parser.add_argument("--reliability", type=Path, required=True)
-    parser.add_argument("--diagnostic", type=Path)
+    parser.add_argument("--diagnostic", type=Path, action="append", default=[])
     parser.add_argument(
         "--output", type=Path, default=Path("docs/evaluations/2026-11-06")
     )
@@ -119,11 +182,17 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     metadata = json.loads((args.live / "metadata.json").read_text(encoding="utf-8"))
     require_complete(live, metadata)
+    audit_policy(live, args.live / "data")
+    export_artifacts(live, args.live / "data", args.output)
     connection = sqlite3.connect(
         f"file:{(args.live / 'data' / 'workbench.sqlite3').resolve().as_posix()}?mode=ro",
         uri=True,
     )
     for row in live:
+        final = connection.execute(
+            "SELECT status FROM tasks WHERE id=?", (row.get("task_id"),)
+        ).fetchone()
+        row["status_after_stop"] = final[0] if final else None
         row["run_errors"] = [
             error
             for (error,) in connection.execute(
@@ -178,25 +247,48 @@ def main():
         "loop_rows": loops,
         "reliability_rows": reliability,
     }
-    diagnostic = []
-    if args.diagnostic:
-        if not (args.diagnostic / "complete.json").is_file():
+    diagnostics = []
+    for index, diagnostic_root in enumerate(args.diagnostic, 1):
+        if not (diagnostic_root / "complete.json").is_file():
             parser.error("Diagnostic incomplete")
         diagnostic = [
             json.loads(line)
-            for line in (args.diagnostic / "results.jsonl")
+            for line in (diagnostic_root / "results.jsonl")
             .read_text(encoding="utf-8")
             .splitlines()
         ]
         diagnostic_meta = json.loads(
-            (args.diagnostic / "metadata.json").read_text(encoding="utf-8")
+            (diagnostic_root / "metadata.json").read_text(encoding="utf-8")
         )
         require_complete(diagnostic, diagnostic_meta)
-        evidence["supplementary_diagnostic"] = {
-            "metadata": diagnostic_meta,
-            "summary": live_summary(diagnostic),
-            "rows": diagnostic,
-        }
+        audit_policy(diagnostic, diagnostic_root / "data")
+        connection = sqlite3.connect(
+            f"file:{(diagnostic_root / 'data' / 'workbench.sqlite3').resolve().as_posix()}?mode=ro",
+            uri=True,
+        )
+        for row in diagnostic:
+            row["run_errors"] = [
+                error
+                for (error,) in connection.execute(
+                    "SELECT r.error FROM runs r JOIN tasks t ON t.id=r.task_id WHERE t.project_id=? AND r.error IS NOT NULL",
+                    (row["project_id"],),
+                )
+            ]
+        connection.close()
+        artifact_base = f"diagnostic/{index}"
+        export_artifacts(
+            diagnostic, diagnostic_root / "data", args.output / artifact_base
+        )
+        diagnostics.append(
+            {
+                "label": diagnostic_root.name,
+                "artifact_base": artifact_base,
+                "metadata": diagnostic_meta,
+                "summary": live_summary(diagnostic),
+                "rows": diagnostic,
+            }
+        )
+    evidence["supplementary_diagnostics"] = diagnostics
     (args.output / "results.json").write_text(
         json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -214,17 +306,18 @@ def main():
         lines.append(
             f"| {mode} | {row['passed']} / {row['runs']} | {row['median_seconds_all_runs']:.2f} | {row['median_total_tokens_observed']} |"
         )
-    if diagnostic:
+    for experiment in diagnostics:
+        diagnostic_meta = experiment["metadata"]
         lines += [
             "",
-            "## 预算诊断（不计入主实验成功率）",
+            f"## 补充验收：{experiment['label']}（不计入主实验成功率）",
             "",
-            f"保持计费任务和策略不变，将时限调整到 {diagnostic_meta['timeout']} 秒，每策略 {diagnostic_meta['repeats']} 次。这是发现超时后的诊断，不是预注册主实验，不能替换原失败样本。",
+            f"固定任务输入和判分，时限 {diagnostic_meta['timeout']} 秒，所选策略每种 {diagnostic_meta['repeats']} 次。运行修复版本及各轮发现的问题见 methodology.md；这些追加样本不能替换原失败或混算主实验分数。判分规则更正如有发生，会保留 scoring_correction 审计。",
             "",
             "| 策略 | 状态 | 独立验收 | 耗时（秒） |",
             "| --- | --- | --- | --- |",
         ]
-        for row in diagnostic:
+        for row in experiment["rows"]:
             lines.append(
                 f"| {row['mode']} | {row['status']} | {'通过' if row['passed'] else '失败'} | {row['elapsed_seconds']:.2f} |"
             )
@@ -232,12 +325,17 @@ def main():
         "",
         "耗时包含原生进程启动、平台编排、成员等待及交付；失败样本为到失败/截止时长，不能当作成功交付耗时。Token 使用原生会话累计值按会话去重后汇总主任务、成员及辅助复核，不将缓存命中等同免费；未获取实际账单，美元费用为空。",
         "",
-        "| 任务 | 策略 | 轮次 | 平台状态 | 独立验收 | 耗时（秒） |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| 任务 | 策略 | 轮次 | 截止状态 | 停止后状态 | 外部成果检查 | 整组验收 | 耗时（秒） |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in live:
+        artifact_pass = all(
+            check["passed"]
+            for check in row["checks"]
+            if check["name"] != "execution_policy"
+        )
         lines.append(
-            f"| {row['case']} | {row['mode']} | {row['repetition']} | {row['status']} | {'通过' if row['passed'] else '失败'} | {row['elapsed_seconds']:.2f} |"
+            f"| {row['case']} | {row['mode']} | {row['repetition']} | {row['status']} | {row['status_after_stop']} | {'通过' if artifact_pass else '失败'} | {'通过' if row['passed'] else '失败'} | {row['elapsed_seconds']:.2f} |"
         )
     lines += [
         "",

@@ -4,6 +4,43 @@ from types import SimpleNamespace
 from workbench.runtime import RuntimeManager, RunRequest
 
 
+async def test_repeat_failure_guard_waits_for_native_interrupt_terminal(tmp_path):
+    import sys
+
+    script = """import sys,json
+def send(x): print(json.dumps(x),flush=True)
+for line in sys.stdin:
+ m=json.loads(line);method=m.get('method')
+ if method=='initialize':send({'id':m['id'],'result':{}})
+ elif method=='thread/start':send({'id':m['id'],'result':{'thread':{'id':'guard-thread'}}})
+ elif method=='turn/start':
+  send({'id':m['id'],'result':{'turn':{'id':'guard-turn'}}})
+  for i in range(8):send({'method':'item/completed','params':{'threadId':'guard-thread','item':{'type':'commandExecution','id':str(i),'command':'fixture-test','exitCode':1,'aggregatedOutput':'same error','status':'completed'}}})
+ elif method=='turn/interrupt':
+  send({'id':m['id'],'result':{}})
+  send({'method':'turn/completed','params':{'turn':{'id':'guard-turn','status':'interrupted'}}})
+"""
+    (tmp_path / "app-server").write_text(script, encoding="utf-8")
+    manager = RuntimeManager(
+        SimpleNamespace(
+            runner="trusted-local", codex_command=sys.executable, approval_timeout=2
+        )
+    )
+    async with asyncio.timeout(15):
+        events = [
+            event
+            async for event in manager.execute(
+                RunRequest("guard-test", "codex", str(tmp_path), "fixture only")
+            )
+        ]
+    assert [
+        event.data["decision"] for event in events if event.kind == "loop_guard"
+    ] == ["warn", "stop"]
+    assert events[-1].kind == "completed"
+    assert events[-1].data["status"] == "failed"
+    assert "连续失败 8 次" in events[-1].data["error"]
+
+
 class RuntimeTests(unittest.TestCase):
     def test_disabled_runner_fails_honestly(self):
         manager = RuntimeManager(

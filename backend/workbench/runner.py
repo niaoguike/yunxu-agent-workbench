@@ -8,6 +8,7 @@ import threading
 import os
 from pathlib import Path
 from .permissions import codex_permissions, claude_needs_human
+from .loop_guard import ToolLoopGuard
 
 
 def emit(kind, **data):
@@ -42,6 +43,18 @@ async def main():
         Path(os.environ["CODEX_HOME"]).mkdir(parents=True, exist_ok=True)
     approvals = {}
     stop = asyncio.Event()
+    guard = ToolLoopGuard()
+    guard_error = None
+
+    def inspect_tool(tool, inputs, result, failed=False):
+        nonlocal guard_error
+        verdict = guard.observe(tool, inputs, result, failed=failed)
+        if verdict:
+            emit("loop_guard", **verdict)
+            if verdict["decision"] == "stop":
+                guard_error = verdict["reason"]
+                stop.set()
+        return verdict
 
     async def controls():
         while True:
@@ -117,6 +130,16 @@ async def main():
                     else PermissionResultDeny(message="Denied by platform user")
                 )
 
+            async def after_tool(inputs, tool_use_id, context):
+                failed = inputs.get("hook_event_name") == "PostToolUseFailure"
+                verdict = inspect_tool(
+                    inputs["tool_name"],
+                    inputs.get("tool_input", {}),
+                    inputs.get("tool_response", inputs.get("error")),
+                    failed,
+                )
+                return {"systemMessage": verdict["reason"]} if verdict else {}
+
             options = ClaudeAgentOptions(
                 cwd=workspace,
                 resume=request["session_id"],
@@ -126,13 +149,15 @@ async def main():
                 permission_mode="auto" if permission_mode == "auto" else "default",
                 can_use_tool=can_use_tool,
                 hooks={
+                    "PostToolUse": [HookMatcher(hooks=[after_tool])],
+                    "PostToolUseFailure": [HookMatcher(hooks=[after_tool])],
                     "PreToolUse": [
                         HookMatcher(
                             hooks=[before_tool],
                             timeout=config["approval_timeout"] + 5,
                             on_failure="block",
                         )
-                    ]
+                    ],
                 },
                 setting_sources=[],
                 settings="{}",
@@ -159,9 +184,12 @@ async def main():
                             emit("session", session_id=msg.session_id)
                             emit(
                                 "completed",
-                                status="interrupted"
+                                status="failed"
+                                if guard_error
+                                else "interrupted"
                                 if stop.is_set()
                                 else ("failed" if msg.is_error else "completed"),
+                                error=guard_error,
                             )
                 finally:
                     stopper.cancel()
@@ -271,14 +299,32 @@ async def main():
                                     else "completed",
                                 ),
                             )
+                            if msg["method"] == "item/completed":
+                                inspect_tool(
+                                    item["type"],
+                                    item.get(
+                                        "command",
+                                        item.get("arguments", item.get("changes", {})),
+                                    ),
+                                    {
+                                        "output": item.get(
+                                            "aggregatedOutput", item.get("result")
+                                        ),
+                                        "error": item.get("error"),
+                                        "exit_code": item.get("exitCode"),
+                                    },
+                                    item.get("status") == "failed"
+                                    or item.get("exitCode") not in (None, 0)
+                                    or item.get("error") is not None,
+                                )
                     elif msg["method"] == "turn/started":
                         turn = msg["params"]["turn"]["id"]
                     elif msg["method"] == "turn/completed":
                         native = msg["params"]["turn"]
                         emit(
                             "completed",
-                            status=native["status"],
-                            error=native.get("error"),
+                            status="failed" if guard_error else native["status"],
+                            error=guard_error or native.get("error"),
                         )
                         done.set()
                         return

@@ -108,12 +108,13 @@ for line in sys.stdin:
   assert p['config']['features.shell_tool'] is False
   assert p['config']['mcp_servers.external.enabled'] is False
   assert p['config']['plugins.custom.enabled'] is False
-  send({'id':m['id'],'result':{'thread':{'id':'review'}}})
+  send({'id':m['id'],'result':{'thread':{'id':'review'},'model':'fixture-model','modelProvider':'fixture'}})
  elif method=='turn/start':
   assert p['sandboxPolicy']['type']=='readOnly' and p['approvalPolicy']=='never'
   assert p['outputSchema']['properties']['decision']['enum']==['continue','stop']
   send({'id':m['id'],'result':{'turn':{'id':'turn'}}})
   send({'method':'item/agentMessage/delta','params':{'delta':'{"decision":"stop","reason":"fixture"}'}})
+  send({'method':'thread/tokenUsage/updated','params':{'threadId':'review','tokenUsage':{'total':{'totalTokens':27,'inputTokens':20,'cachedInputTokens':10,'outputTokens':7},'last':{'totalTokens':27}}}})
   send({'method':'turn/completed','params':{'turn':{'id':'turn','status':'completed'}}})
 """
     (tmp_path / "app-server").write_text(script, encoding="utf-8")
@@ -133,3 +134,11 @@ for line in sys.stdin:
         ]
     assert events[-1].data["status"] == "completed"
     assert not any(event.kind == "approval" for event in events)
+    assert (
+        next(e.data for e in events if e.kind == "usage")["cumulative"]["totalTokens"]
+        == 27
+    )
+    assert (
+        next(e.data for e in events if e.kind == "native_config")["model"]
+        == "fixture-model"
+    )

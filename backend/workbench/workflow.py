@@ -84,6 +84,17 @@ class Workflow:
         try:
             async with asyncio.timeout(20):
                 async for event in self.runtime.execute(request):
+                    if event.kind in {"usage", "native_config"}:
+                        self.store.event(
+                            task["id"],
+                            event.kind,
+                            {
+                                **event.data,
+                                "auxiliary": True,
+                                "review_run_id": request.run_id,
+                            },
+                            run_id,
+                        )
                     if event.kind == "delta":
                         chunks.append(event.data.get("text", ""))
                     elif event.kind == "message":

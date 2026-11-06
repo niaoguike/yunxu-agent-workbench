@@ -382,6 +382,12 @@ async def main():
                     elif msg["method"] == "thread/tokenUsage/updated":
                         usage = msg.get("params", {}).get("tokenUsage", {})
                         emit(
+                            "usage",
+                            session_id=thread,
+                            cumulative=usage.get("total"),
+                            last=usage.get("last"),
+                        )
+                        emit(
                             "context_usage",
                             context_tokens=usage.get("last", {}).get("totalTokens"),
                             context_window=usage.get("modelContextWindow"),
@@ -580,6 +586,11 @@ async def main():
                         raise
                 thread = result["thread"]["id"]
                 emit("session", session_id=thread)
+                emit(
+                    "native_config",
+                    model=result.get("model", request.get("model")),
+                    provider=result.get("modelProvider"),
+                )
                 emit(
                     "permission_policy",
                     mode=permission_mode,

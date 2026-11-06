@@ -27,6 +27,8 @@ class TeamEngine(EngineFixture):
 
     async def execute(self, request):
         if request.bridge_role == "worker":
+            assert "主任务后续汇总" in request.instructions
+            assert "仍必须如实报告" in request.instructions
             yield RuntimeEvent(
                 "platform_tool",
                 {

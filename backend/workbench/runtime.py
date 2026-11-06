@@ -7,6 +7,7 @@ import sys
 import uuid
 import os
 import signal
+from pathlib import Path
 
 
 @dataclass
@@ -137,6 +138,14 @@ class RuntimeManager:
         proc = None
         terminal = False
         try:
+            worker_env = os.environ.copy()
+            if self.settings.runner == "trusted-local":
+                # Native shells must see the same Python toolchain as the platform.
+                worker_env["PATH"] = (
+                    str(Path(sys.executable).parent)
+                    + os.pathsep
+                    + worker_env.get("PATH", "")
+                )
             proc = await asyncio.create_subprocess_exec(
                 *command,
                 stdin=asyncio.subprocess.PIPE,
@@ -144,6 +153,7 @@ class RuntimeManager:
                 stderr=asyncio.subprocess.DEVNULL,
                 limit=4 * 1024 * 1024,
                 start_new_session=os.name != "nt",
+                env=worker_env,
             )
             self.processes[request.run_id] = proc
             self.locks[request.run_id] = asyncio.Lock()

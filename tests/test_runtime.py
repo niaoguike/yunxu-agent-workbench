@@ -7,7 +7,9 @@ from workbench.runtime import RuntimeManager, RunRequest
 async def test_repeat_failure_guard_waits_for_native_interrupt_terminal(tmp_path):
     import sys
 
-    script = """import sys,json
+    script = """import sys,json,os
+from pathlib import Path
+assert Path(os.environ['PATH'].split(os.pathsep)[0]).resolve()==Path(sys.executable).parent.resolve()
 def send(x): print(json.dumps(x),flush=True)
 for line in sys.stdin:
  m=json.loads(line);method=m.get('method')

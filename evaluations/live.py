@@ -240,6 +240,7 @@ def main():
                 Path("evaluations/cases.py"),
                 Path("evaluations/live.py"),
                 Path("backend/workbench/runner.py"),
+                Path("backend/workbench/runtime.py"),
                 Path("backend/workbench/workflow.py"),
             ]
         },

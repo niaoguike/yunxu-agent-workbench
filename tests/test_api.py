@@ -178,24 +178,18 @@ def test_new_requirement_invalidates_old_confirmation(setup):
     )
 
 
-def test_development_stages_have_real_human_gates(setup):
-    client, project, engine = setup
-    item = task(client, project, "development")
-    client.post(f"/api/tasks/{item['id']}/messages", json={"content": "Implement"})
-    for expected_stage in (0, 1, 5):
-        result = wait_task(client, item["id"], {"waiting_confirmation"})
-        assert result["stage"] == expected_stage
-        pending = next(g for g in result["gates"] if g["status"] == "pending")
-        assert (
-            client.post(
-                f"/api/tasks/{item['id']}/gates/{pending['id']}",
-                json={"decision": "approve"},
-            ).status_code
-            == 200
-        )
-    final = wait_task(client, item["id"], {"delivered"})
-    assert final["stage"] == 6
-    assert len(engine.requests) == 7
+def test_new_tasks_use_one_entry_and_reject_fixed_development_pipeline(setup):
+    client, project, _ = setup
+    base = f"/api/projects/{project['id']}/tasks"
+    created = client.post(base, json={"title": "Unified task"})
+    assert created.status_code == 201
+    assert created.json()["mode"] == "free"
+    assert (
+        client.post(
+            base, json={"title": "Old pipeline", "mode": "development"}
+        ).status_code
+        == 422
+    )
 
 
 @pytest.mark.parametrize(
@@ -506,7 +500,7 @@ def test_unavailable_engine_does_not_create_fake_response(tmp_path):
 def test_queued_inputs_dispatch_in_order_before_another_stage(setup):
     client, project, engine = setup
     engine.hold = True
-    item = task(client, project, "development")
+    item = task(client, project)
     base = f"/api/tasks/{item['id']}"
     client.post(base + "/messages", json={"content": "Initial requirement"})
     wait_task(client, item["id"], {"running"})
@@ -557,7 +551,7 @@ def test_permission_mode_roundtrip_and_stage_gate_stays_independent(setup):
     client, project, engine = setup
     item = client.post(
         f"/api/projects/{project['id']}/tasks",
-        json={"title": "Auto requirement", "mode": "development"},
+        json={"title": "Auto requirement", "require_acceptance": True},
     ).json()
     assert item["permission_mode"] == "auto"
     base = f"/api/tasks/{item['id']}"

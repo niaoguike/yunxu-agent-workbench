@@ -395,7 +395,7 @@ function App() {
                 >
                   <b>{t.title}</b>
                   <small>
-                    {t.mode === "development" ? "需求开发" : "自由模式"} ·{" "}
+                    {t.mode === "development" ? "旧版流程" : "任务"} ·{" "}
                     {status[t.status] || t.status}
                   </small>
                 </button>
@@ -414,7 +414,7 @@ function App() {
                         : "Auto · 原生风险审核"}
                     </span>
                     <span className="badge">
-                      {task.mode === "development" ? "需求开发" : "自由模式"}
+                      {task.mode === "development" ? "旧版流程" : "任务"}
                     </span>
                     <span>
                       {task.engine} {task.model}
@@ -425,6 +425,18 @@ function App() {
                   </div>
                   {task.mode === "development" && (
                     <div className="stages">
+                      <button
+                        onClick={() =>
+                          act(async () => {
+                            await api(`/tasks/${task.id}`, "PATCH", {
+                              mode: "free",
+                            });
+                            await refresh();
+                          })
+                        }
+                      >
+                        停止执行后转为统一任务
+                      </button>
                       {stages.map((s, i) => (
                         <span
                           className={i === task.stage ? "current" : ""}
@@ -1125,13 +1137,7 @@ function App() {
                   采用原生风险审核，拒绝或不可用时不会自动放开全部权限。
                 </small>
                 <p>执行中请先停止。修改后建立新会话，保留历史并重新确认。</p>
-                <label>
-                  工作模式
-                  <select name="mode" defaultValue={task?.mode}>
-                    <option value="free">自由模式</option>
-                    <option value="development">需求开发</option>
-                  </select>
-                </label>
+
                 <label>
                   执行器
                   <select name="engine" defaultValue={task?.engine}>
@@ -1149,7 +1155,7 @@ function App() {
                     name="require_acceptance"
                     defaultChecked={!!task?.require_acceptance}
                   />
-                  自由模式需要人工验收
+                  交付前需要人工验收
                 </label>
               </>
             ) : modal === "设置" ? (
@@ -1200,20 +1206,10 @@ function App() {
                         <option value="ask">Ask · 需要授权时询问我</option>
                       </select>
                     </label>
-                    <label>
-                      工作模式
-                      <select name="mode">
-                        <option value="free">
-                          自由模式 · 明确目标直接执行
-                        </option>
-                        <option value="development">
-                          需求开发 · 七阶段与人工确认
-                        </option>
-                      </select>
-                    </label>
+
                     <label>
                       <input name="require_acceptance" type="checkbox" />
-                      自由模式额外要求人工验收
+                      交付前需要人工验收
                     </label>
                     <label>
                       执行器

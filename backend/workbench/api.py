@@ -45,7 +45,7 @@ class ProjectPatch(BaseModel):
 
 class TaskInput(BaseModel):
     title: str = Field(min_length=1, max_length=240)
-    mode: Literal["free", "development"] = "free"
+    mode: Literal["free"] = "free"
     engine: Literal["codex", "claude"] = "codex"
     model: str | None = Field(default=None, max_length=120)
     require_acceptance: bool = False
@@ -53,7 +53,7 @@ class TaskInput(BaseModel):
 
 
 class TaskPatch(BaseModel):
-    mode: Literal["free", "development"] | None = None
+    mode: Literal["free"] | None = None
     engine: Literal["codex", "claude"] | None = None
     model: str | None = Field(default=None, max_length=120)
     require_acceptance: bool | None = None

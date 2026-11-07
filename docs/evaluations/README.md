@@ -26,7 +26,7 @@
 .venv/Scripts/python.exe -m evaluations.report --live .data/evaluations/acceptance-new --loops .data/evaluations/loops-new --reliability .data/evaluations/reliability-new --output docs/evaluations/new-run
 ```
 
-真实执行在独立数据库和全新项目中进行，不使用主工作台项目的任务、资料或记忆。系统默认引擎配置仍会影响结果，必须核对输出中的实际 model 和 native_version。单 Agent 禁止平台成员和原生子 Agent；协作组要求恰好一个实质工作指派，原生子 Agent 不参与对照。每个组的消耗包含主任务和协作者。
+真实执行在独立数据库和全新项目中进行，不使用主工作台项目的任务、资料或记忆。系统默认引擎配置仍会影响结果，必须核对输出中的实际 model 和 native_version。单 Agent 禁止平台成员和原生子 Agent；协作组要求恰好一名参与执行的持久成员，允许修复重派，原生子 Agent 不参与对照。每个组的消耗包含主任务和协作者。
 
 运行记录逐条追加 results.jsonl，失败和超时不丢弃，不自动重跑来替换分数。需要再次评测时保留旧目录，并报告两轮差异。小样本仅用于工程验收，不能写作公开任务泛化能力。
 
@@ -42,3 +42,17 @@
 ## 验收器的边界
 
 计费代码在独立子进程中运行隐藏检查，10秒超时；这不是不可信代码的强安全隔离。仅用于本机授权的固定测试任务。CSV 采用精确 JSON 比较；资料核验检查结论、数值和必要引用覆盖，不自动证明自然语言每句话都被引用支持。
+
+## 离线复核已归档成果
+
+不调用模型即可重跑已归档代码/JSON的语义检查，并比对运行时摘要：
+
+```powershell
+.venv/Scripts/python.exe -m evaluations.verify docs/evaluations/2026-11-06/results.json
+```
+
+此命令核对语义判分是否与记录一致，失败样本也应复现失败。它不重新证明历史平台状态、原材料未被修改或私有检查日志真实性；完整运行仍需上述真实模型实验。计费成果会在本机子进程执行，仅用于本仓库固定任务的授权成果，不用于任意不可信归档。
+
+归档成果通过 .gitattributes 保留原始字节，避免 Git 换行转换破坏运行时 SHA-256 对照。历史基线执行代码为 bda5bd3；运行环境和成员检查范围修复为 b95273c。当前代码重跑默认采用修复后的环境。
+
+判分更正 1.0.1：提示要求只用一名持久成员，并未禁止向同一成员再次指派修复。初版将指派条数误作成员数；更正为参与指派的成员去重数。原始 results.jsonl 不改写，导出记录保留 scoring_correction（如发生），主实验12组分数不变。

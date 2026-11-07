@@ -1,0 +1,22 @@
+{
+    "currency":  "CNY",
+    "paid_order_count":  5,
+    "revenue":  "39.50",
+    "customers":  [
+                      {
+                          "customer":  "Alice",
+                          "orders":  2,
+                          "revenue":  "16.00"
+                      },
+                      {
+                          "customer":  "Bob",
+                          "orders":  2,
+                          "revenue":  "20.00"
+                      },
+                      {
+                          "customer":  "Carol",
+                          "orders":  1,
+                          "revenue":  "3.50"
+                      }
+                  ]
+}

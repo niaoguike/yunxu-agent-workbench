@@ -1,0 +1,56 @@
+{
+  "recommendation": "Alpha",
+  "monthly_costs": {
+    "Alpha": 120,
+    "Beta": 130
+  },
+  "eligible": {
+    "Alpha": true,
+    "Beta": false
+  },
+  "availability_percentage": null,
+  "findings": [
+    {
+      "claim": "Alpha current contract pricing is 120 CNY/month with required CSV export included; total monthly cost is 120 CNY.",
+      "source_ids": [
+        "S2",
+        "S6"
+      ]
+    },
+    {
+      "claim": "Beta current contract pricing is 90 CNY/month plus 40 CNY/month for required CSV export; total monthly cost is 130 CNY.",
+      "source_ids": [
+        "S3",
+        "S6"
+      ]
+    },
+    {
+      "claim": "CSV export and CN data residency are required, with a monthly budget of 150 CNY. Alpha provides CSV export and CN residency at 120 CNY/month, so it is eligible. Beta with CSV export costs 130 CNY/month and meets the budget, but its EU data region fails CN residency, so it is ineligible. Recommend Alpha.",
+      "source_ids": [
+        "S2",
+        "S3",
+        "S6"
+      ]
+    },
+    {
+      "claim": "Beta marketing claims no downtime ever, but the incident evidence records a 30-minute Beta outage, contradicting that claim. The marketing also provides no measured availability evidence.",
+      "source_ids": [
+        "S4",
+        "S5"
+      ]
+    },
+    {
+      "claim": "Availability percentage is unknown: the incident evidence records 30 minutes for Beta and 10 minutes for Alpha but specifies no observation window, so these durations cannot establish an availability percentage.",
+      "source_ids": [
+        "S5"
+      ]
+    },
+    {
+      "claim": "The old Alpha price is explicitly superseded by the current S2 contract and is excluded from all cost calculations.",
+      "source_ids": [
+        "S1",
+        "S2"
+      ]
+    }
+  ]
+}

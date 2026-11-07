@@ -14,6 +14,12 @@ Python 控制面 + React 工作台，复用 Claude Code / Codex 原生 Agent loo
 
 实现和真实模型验证边界见 [Agent 核心对齐](docs/Agent核心对齐.md)。
 
+## 验收与对照评测
+
+提供独立判分的 CSV 清洗、计费修复、资料核验任务集，以及循环治理、幂等指派和文件冲突故障对照。真实模型结果和离线故障注入分别统计，失败与超时保留在分母中。
+
+复现命令见 [评测说明](docs/evaluations/README.md)，本次实测见 [验收报告](docs/evaluations/2026-11-06/report.md) 与 [方法及限制](docs/evaluations/2026-11-06/methodology.md)。
+
 ## 本地启动
 
 需要 Python 3.12+、Node 22+。在项目根目录执行：

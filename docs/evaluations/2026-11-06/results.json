@@ -1,0 +1,2505 @@
+{
+  "metadata": {
+    "dataset_version": "1.0",
+    "started_utc": "2026-11-06T12:30:03.276088+00:00",
+    "repeats": 2,
+    "timeout": 300,
+    "cases": [
+      "csv",
+      "billing",
+      "evidence"
+    ],
+    "modes": [
+      "single",
+      "team"
+    ],
+    "python": "3.12.10",
+    "native_version": "codex-cli 0.166.0-alpha.6",
+    "git_commit": "6f219c26d8c2918895cfc13272f6c24bd44ba8a7",
+    "dirty_tree": true,
+    "runner": "trusted-local"
+  },
+  "summary": {
+    "live": {
+      "single": {
+        "runs": 6,
+        "passed": 4,
+        "pass_rate": 0.6666666666666666,
+        "median_seconds_all_runs": 155.9065,
+        "median_total_tokens_observed": 199950.0,
+        "runs_with_usage": 6,
+        "median_uncached_input_tokens_observed": 14095.5,
+        "median_output_tokens_observed": 6594.0
+      },
+      "team": {
+        "runs": 6,
+        "passed": 1,
+        "pass_rate": 0.16666666666666666,
+        "median_seconds_all_runs": 300.079,
+        "median_total_tokens_observed": 621733.0,
+        "runs_with_usage": 6,
+        "median_uncached_input_tokens_observed": 35571.5,
+        "median_output_tokens_observed": 12705.5
+      }
+    },
+    "loops": {
+      "fixed_eight": {
+        "traces": 20,
+        "loop_detected": 8,
+        "loop_traces": 8,
+        "false_stops": 8,
+        "nonloop_traces": 12,
+        "median_actions_to_stop_true_loops": 8.0,
+        "review_calls": 0,
+        "review_failures": 0,
+        "median_review_seconds": null,
+        "review_tool_actions": 0,
+        "review_total_tokens_observed": 0
+      },
+      "adaptive_review": {
+        "traces": 20,
+        "loop_detected": 8,
+        "loop_traces": 8,
+        "false_stops": 0,
+        "nonloop_traces": 12,
+        "median_actions_to_stop_true_loops": 3.0,
+        "review_calls": 16,
+        "review_failures": 0,
+        "median_review_seconds": 11.648,
+        "review_tool_actions": 0,
+        "review_total_tokens_observed": 199688
+      }
+    },
+    "reliability": {
+      "retry_attempts_per_strategy": 200,
+      "duplicates": {
+        "fresh_key_baseline": 190,
+        "stable_key": 0
+      },
+      "invariants_passed": 40,
+      "invariants": 40
+    }
+  },
+  "live_rows": [
+    {
+      "case": "csv",
+      "mode": "single",
+      "repetition": 1,
+      "project_id": "d3189eef22644be4a20fb34039843863",
+      "task_id": "8cd57de3d9c34f94a74f73b06a802802",
+      "prompt_sha256": "ee64ac7ae22a5d530858535039570f234ba6e900184557daf8b74bf66368a8da",
+      "elapsed_seconds": 136.531,
+      "status": "delivered",
+      "timed_out": false,
+      "passed": true,
+      "checks": [
+        {
+          "name": "artifact:summary.json",
+          "passed": true
+        },
+        {
+          "name": "artifact:checks.md",
+          "passed": true
+        },
+        {
+          "name": "input_unchanged:orders.csv",
+          "passed": true
+        },
+        {
+          "name": "exact:currency",
+          "passed": true
+        },
+        {
+          "name": "exact:paid_order_count",
+          "passed": true
+        },
+        {
+          "name": "exact:revenue",
+          "passed": true
+        },
+        {
+          "name": "exact:customers",
+          "passed": true
+        },
+        {
+          "name": "execution_policy",
+          "passed": true
+        }
+      ],
+      "group_tasks": 1,
+      "group_runs": 1,
+      "artifacts": {
+        "summary.json": "a930220dc023b808af6545d430832e253b7e42c879313c6caea7c410d1914c0e",
+        "checks.md": "5786e5d5dfdfd0d98a3fdfb0a33f56b3b61215238ac0d5dd4bf1166ffb1a790d"
+      },
+      "tokens": {
+        "inputTokens": 151610,
+        "cachedInputTokens": 133120,
+        "outputTokens": 4971,
+        "reasoningOutputTokens": 887,
+        "totalTokens": 156581
+      },
+      "usage_sessions": 1,
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "tool_actions": 6,
+      "native_subagent_events": 0,
+      "review_requests": 0,
+      "usd_cost": null,
+      "exported_artifacts": {
+        "summary.json": "artifacts/csv-single-1/summary.json"
+      },
+      "status_after_stop": "delivered",
+      "run_errors": [],
+      "native_timeout": false
+    },
+    {
+      "case": "csv",
+      "mode": "team",
+      "repetition": 1,
+      "project_id": "a4fb7134c40b4392a7b1873b3ff0a394",
+      "task_id": "b1853bfb21684196b1825094a539e95d",
+      "prompt_sha256": "e66d0fb3282ca2b42b81b80eb26f4f735401e8919304b5c43c045fba46439b2b",
+      "elapsed_seconds": 270.156,
+      "status": "delivered",
+      "timed_out": false,
+      "passed": true,
+      "checks": [
+        {
+          "name": "artifact:summary.json",
+          "passed": true
+        },
+        {
+          "name": "artifact:checks.md",
+          "passed": true
+        },
+        {
+          "name": "input_unchanged:orders.csv",
+          "passed": true
+        },
+        {
+          "name": "exact:currency",
+          "passed": true
+        },
+        {
+          "name": "exact:paid_order_count",
+          "passed": true
+        },
+        {
+          "name": "exact:revenue",
+          "passed": true
+        },
+        {
+          "name": "exact:customers",
+          "passed": true
+        },
+        {
+          "name": "execution_policy",
+          "passed": true
+        }
+      ],
+      "group_tasks": 2,
+      "group_runs": 2,
+      "artifacts": {
+        "summary.json": "0fc876c98aa32bc344beabfafa2d45b1c1f4ff169f9a3f2861d9b903b1fe30e1",
+        "checks.md": "cd6d42e123179e6e4d80521f08978c31a10735bd86b3682dc20ca3e401e05f93"
+      },
+      "tokens": {
+        "inputTokens": 540952,
+        "cachedInputTokens": 510336,
+        "outputTokens": 10907,
+        "reasoningOutputTokens": 2900,
+        "totalTokens": 551859
+      },
+      "usage_sessions": 2,
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "tool_actions": 27,
+      "native_subagent_events": 0,
+      "review_requests": 0,
+      "usd_cost": null,
+      "exported_artifacts": {
+        "summary.json": "artifacts/csv-team-1/summary.json"
+      },
+      "status_after_stop": "delivered",
+      "run_errors": [],
+      "native_timeout": false
+    },
+    {
+      "case": "billing",
+      "mode": "team",
+      "repetition": 1,
+      "project_id": "29273fbe41464a4c96f216c1bc64e277",
+      "task_id": "842c1d0779f947238508a76141a0cafe",
+      "prompt_sha256": "9ac35b47d9c3c33b396a69166f60b291dd93d698851ba129360055261bdf5a27",
+      "elapsed_seconds": 300.422,
+      "status": "failed",
+      "timed_out": false,
+      "passed": false,
+      "checks": [
+        {
+          "name": "artifact:billing.py",
+          "passed": true
+        },
+        {
+          "name": "artifact:checks.md",
+          "passed": false
+        },
+        {
+          "name": "19_hidden_billing_cases",
+          "passed": false,
+          "detail": "Traceback (most recent call last):\n  File \"<string>\", line 8, in <module>\nAssertionError: ([], '0', '0.0', '0.00')\n"
+        },
+        {
+          "name": "execution_policy",
+          "passed": true
+        }
+      ],
+      "group_tasks": 2,
+      "group_runs": 2,
+      "artifacts": {
+        "billing.py": "4048b59b51ea6e2ce8b9a3cd666361596a1ffc7906ae8a753721946d43f306fe"
+      },
+      "tokens": {
+        "inputTokens": 662490,
+        "cachedInputTokens": 606080,
+        "outputTokens": 11527,
+        "reasoningOutputTokens": 4147,
+        "totalTokens": 674017
+      },
+      "usage_sessions": 2,
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "tool_actions": 29,
+      "native_subagent_events": 0,
+      "review_requests": 0,
+      "usd_cost": null,
+      "exported_artifacts": {
+        "billing.py": "artifacts/billing-team-1/billing.py"
+      },
+      "status_after_stop": "failed",
+      "run_errors": [
+        "TimeoutError"
+      ],
+      "native_timeout": true,
+      "member_checks_after_stop": [
+        {
+          "status": "interrupted",
+          "checks": [
+            {
+              "name": "artifact:billing.py",
+              "passed": true
+            },
+            {
+              "name": "artifact:checks.md",
+              "passed": true
+            },
+            {
+              "name": "19_hidden_billing_cases",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "billing",
+      "mode": "single",
+      "repetition": 1,
+      "project_id": "6cfe4c658daf4daeadf54fb6f9ae954f",
+      "task_id": "07dfc96f38be492eb4614c8e31da50e6",
+      "prompt_sha256": "bf787e099b8b7fd075411e224561d367a522c671447d4ff3e3ac731c202afca0",
+      "elapsed_seconds": 300.203,
+      "status": "running",
+      "timed_out": true,
+      "passed": false,
+      "checks": [
+        {
+          "name": "artifact:billing.py",
+          "passed": true
+        },
+        {
+          "name": "artifact:checks.md",
+          "passed": true
+        },
+        {
+          "name": "19_hidden_billing_cases",
+          "passed": true
+        },
+        {
+          "name": "execution_policy",
+          "passed": true
+        }
+      ],
+      "group_tasks": 1,
+      "group_runs": 2,
+      "artifacts": {
+        "billing.py": "cfe234fcb1bf0eb19984aec66aaa723bf5735cf1f2f09a5ed0242acbc94cf4af",
+        "checks.md": "38577e79ee57b8b8883ba07d92fbc902d50dbe56a7f8bb2d46f2e4db965ce66f"
+      },
+      "tokens": {
+        "inputTokens": 701024,
+        "cachedInputTokens": 663936,
+        "outputTokens": 19671,
+        "reasoningOutputTokens": 5964,
+        "totalTokens": 720695
+      },
+      "usage_sessions": 2,
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "tool_actions": 18,
+      "native_subagent_events": 0,
+      "review_requests": 0,
+      "usd_cost": null,
+      "exported_artifacts": {
+        "billing.py": "artifacts/billing-single-1/billing.py"
+      },
+      "status_after_stop": "interrupted",
+      "run_errors": [
+        "交付检查未通过：Execute Python unittest suite：failed; Exact Decimal results, one final ROUND_HALF_UP, two-decimal formatting and empty invoices：unverified; ValueError for invalid types, missing fields, nonfinite values, price precision and numeric ranges：unverified"
+      ],
+      "native_timeout": false,
+      "member_checks_after_stop": []
+    },
+    {
+      "case": "evidence",
+      "mode": "single",
+      "repetition": 1,
+      "project_id": "52f5559bad7a442c819caddef78d038f",
+      "task_id": "1ba01334bc7943bdbc0cc4c38834c6a3",
+      "prompt_sha256": "b1b04766a0904717143099ca714f26705f9c5bd17697c3cb0a077df1c68c726f",
+      "elapsed_seconds": 101.016,
+      "status": "delivered",
+      "timed_out": false,
+      "passed": true,
+      "checks": [
+        {
+          "name": "artifact:report.json",
+          "passed": true
+        },
+        {
+          "name": "artifact:checks.md",
+          "passed": true
+        },
+        {
+          "name": "input_unchanged:sources.json",
+          "passed": true
+        },
+        {
+          "name": "exact:recommendation",
+          "passed": true
+        },
+        {
+          "name": "exact:monthly_costs",
+          "passed": true
+        },
+        {
+          "name": "exact:eligible",
+          "passed": true
+        },
+        {
+          "name": "exact:availability_percentage",
+          "passed": true
+        },
+        {
+          "name": "valid_citations",
+          "passed": true
+        },
+        {
+          "name": "required_sources",
+          "passed": true
+        },
+        {
+          "name": "contradiction_cited",
+          "passed": true
+        },
+        {
+          "name": "execution_policy",
+          "passed": true
+        }
+      ],
+      "group_tasks": 1,
+      "group_runs": 1,
+      "artifacts": {
+        "report.json": "cd88c80af5c1963c822444f6c373ce41d2db0e868b5c4da0bed941c65f232eac",
+        "checks.md": "01f2046bb9e81bfc53f9ab9947be5d148e2b6d49c4c6c90d1ddc17dc121f7697"
+      },
+      "tokens": {
+        "inputTokens": 129229,
+        "cachedInputTokens": 119680,
+        "outputTokens": 4082,
+        "reasoningOutputTokens": 547,
+        "totalTokens": 133311
+      },
+      "usage_sessions": 1,
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "tool_actions": 5,
+      "native_subagent_events": 0,
+      "review_requests": 0,
+      "usd_cost": null,
+      "exported_artifacts": {
+        "report.json": "artifacts/evidence-single-1/report.json"
+      },
+      "status_after_stop": "delivered",
+      "run_errors": [],
+      "native_timeout": false
+    },
+    {
+      "case": "evidence",
+      "mode": "team",
+      "repetition": 1,
+      "project_id": "9a37c86bc2684f958c20ca97d353ade6",
+      "task_id": "ca140a1e66084da69c8587e130e4959f",
+      "prompt_sha256": "a7e2a7bbd3220b94531bc30024b72c661e1d85ed7a62a9ffc566cfaaebbc0adc",
+      "elapsed_seconds": 300.079,
+      "status": "running",
+      "timed_out": true,
+      "passed": false,
+      "checks": [
+        {
+          "name": "artifact:report.json",
+          "passed": true
+        },
+        {
+          "name": "artifact:checks.md",
+          "passed": true
+        },
+        {
+          "name": "input_unchanged:sources.json",
+          "passed": true
+        },
+        {
+          "name": "exact:recommendation",
+          "passed": true
+        },
+        {
+          "name": "exact:monthly_costs",
+          "passed": true
+        },
+        {
+          "name": "exact:eligible",
+          "passed": true
+        },
+        {
+          "name": "exact:availability_percentage",
+          "passed": true
+        },
+        {
+          "name": "valid_citations",
+          "passed": true
+        },
+        {
+          "name": "required_sources",
+          "passed": true
+        },
+        {
+          "name": "contradiction_cited",
+          "passed": true
+        },
+        {
+          "name": "execution_policy",
+          "passed": true
+        }
+      ],
+      "group_tasks": 2,
+      "group_runs": 3,
+      "artifacts": {
+        "report.json": "ff9aea495e5c15f0607d7505b5709ec8b87df4840f36ae6ee3e46533c1d1e697",
+        "checks.md": "81f5d98c94d37e1fdcd1bc56e69cfe9693c194ace0039adf265bb35496a9079a"
+      },
+      "tokens": {
+        "inputTokens": 870593,
+        "cachedInputTokens": 833280,
+        "outputTokens": 16673,
+        "reasoningOutputTokens": 3856,
+        "totalTokens": 887266
+      },
+      "usage_sessions": 3,
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "tool_actions": 34,
+      "native_subagent_events": 0,
+      "review_requests": 0,
+      "usd_cost": null,
+      "exported_artifacts": {
+        "report.json": "artifacts/evidence-team-1/report.json"
+      },
+      "status_after_stop": "failed",
+      "run_errors": [
+        "TimeoutError",
+        "交付检查未通过：Leader independent verification：unverified"
+      ],
+      "native_timeout": true,
+      "member_checks_after_stop": [
+        {
+          "status": "delivered",
+          "checks": [
+            {
+              "name": "artifact:report.json",
+              "passed": true
+            },
+            {
+              "name": "artifact:checks.md",
+              "passed": true
+            },
+            {
+              "name": "input_unchanged:sources.json",
+              "passed": true
+            },
+            {
+              "name": "exact:recommendation",
+              "passed": true
+            },
+            {
+              "name": "exact:monthly_costs",
+              "passed": true
+            },
+            {
+              "name": "exact:eligible",
+              "passed": true
+            },
+            {
+              "name": "exact:availability_percentage",
+              "passed": true
+            },
+            {
+              "name": "valid_citations",
+              "passed": true
+            },
+            {
+              "name": "required_sources",
+              "passed": true
+            },
+            {
+              "name": "contradiction_cited",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "csv",
+      "mode": "team",
+      "repetition": 2,
+      "project_id": "1a453291acfa429facd90935d13b70b9",
+      "task_id": "eed19297748b410281b646a4c812a656",
+      "prompt_sha256": "e66d0fb3282ca2b42b81b80eb26f4f735401e8919304b5c43c045fba46439b2b",
+      "elapsed_seconds": 300.14,
+      "status": "running",
+      "timed_out": true,
+      "passed": false,
+      "checks": [
+        {
+          "name": "artifact:summary.json",
+          "passed": true
+        },
+        {
+          "name": "artifact:checks.md",
+          "passed": true
+        },
+        {
+          "name": "input_unchanged:orders.csv",
+          "passed": true
+        },
+        {
+          "name": "exact:currency",
+          "passed": true
+        },
+        {
+          "name": "exact:paid_order_count",
+          "passed": true
+        },
+        {
+          "name": "exact:revenue",
+          "passed": true
+        },
+        {
+          "name": "exact:customers",
+          "passed": true
+        },
+        {
+          "name": "execution_policy",
+          "passed": true
+        }
+      ],
+      "group_tasks": 2,
+      "group_runs": 2,
+      "artifacts": {
+        "summary.json": "80cfb8a9ae9a0dbf2965720464ce5ac3d9f7ffaad4982baeeaa0dc8ab9b72b5d",
+        "checks.md": "cc447fbbd49751c5fc2bda60247e9945609fe9199426fe183e7b429ee9353a37"
+      },
+      "tokens": {
+        "inputTokens": 509862,
+        "cachedInputTokens": 476032,
+        "outputTokens": 12432,
+        "reasoningOutputTokens": 2077,
+        "totalTokens": 522294
+      },
+      "usage_sessions": 2,
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "tool_actions": 36,
+      "native_subagent_events": 0,
+      "review_requests": 0,
+      "usd_cost": null,
+      "exported_artifacts": {
+        "summary.json": "artifacts/csv-team-2/summary.json"
+      },
+      "status_after_stop": "failed",
+      "run_errors": [
+        "TimeoutError"
+      ],
+      "native_timeout": true,
+      "member_checks_after_stop": [
+        {
+          "status": "delivered",
+          "checks": [
+            {
+              "name": "artifact:summary.json",
+              "passed": true
+            },
+            {
+              "name": "artifact:checks.md",
+              "passed": true
+            },
+            {
+              "name": "input_unchanged:orders.csv",
+              "passed": true
+            },
+            {
+              "name": "exact:currency",
+              "passed": true
+            },
+            {
+              "name": "exact:paid_order_count",
+              "passed": true
+            },
+            {
+              "name": "exact:revenue",
+              "passed": true
+            },
+            {
+              "name": "exact:customers",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "csv",
+      "mode": "single",
+      "repetition": 2,
+      "project_id": "9cb3acd7de2b43c9b8e88875fd91dd3d",
+      "task_id": "c636b5c5787749b6b488a09e74507e9a",
+      "prompt_sha256": "ee64ac7ae22a5d530858535039570f234ba6e900184557daf8b74bf66368a8da",
+      "elapsed_seconds": 155.156,
+      "status": "delivered",
+      "timed_out": false,
+      "passed": true,
+      "checks": [
+        {
+          "name": "artifact:summary.json",
+          "passed": true
+        },
+        {
+          "name": "artifact:checks.md",
+          "passed": true
+        },
+        {
+          "name": "input_unchanged:orders.csv",
+          "passed": true
+        },
+        {
+          "name": "exact:currency",
+          "passed": true
+        },
+        {
+          "name": "exact:paid_order_count",
+          "passed": true
+        },
+        {
+          "name": "exact:revenue",
+          "passed": true
+        },
+        {
+          "name": "exact:customers",
+          "passed": true
+        },
+        {
+          "name": "execution_policy",
+          "passed": true
+        }
+      ],
+      "group_tasks": 1,
+      "group_runs": 1,
+      "artifacts": {
+        "summary.json": "a930220dc023b808af6545d430832e253b7e42c879313c6caea7c410d1914c0e",
+        "checks.md": "500a1f65f0acee0ba62051a62d9270e7989b262d8d11746bc69e68d6e1c0a553"
+      },
+      "tokens": {
+        "inputTokens": 159539,
+        "cachedInputTokens": 150144,
+        "outputTokens": 7099,
+        "reasoningOutputTokens": 1176,
+        "totalTokens": 166638
+      },
+      "usage_sessions": 1,
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "tool_actions": 6,
+      "native_subagent_events": 0,
+      "review_requests": 0,
+      "usd_cost": null,
+      "exported_artifacts": {
+        "summary.json": "artifacts/csv-single-2/summary.json"
+      },
+      "status_after_stop": "delivered",
+      "run_errors": [],
+      "native_timeout": false
+    },
+    {
+      "case": "billing",
+      "mode": "single",
+      "repetition": 2,
+      "project_id": "0b70b442fde14254bfd24cec9fe8fccb",
+      "task_id": "d9f05f6ef2044381844c7d4df979be91",
+      "prompt_sha256": "bf787e099b8b7fd075411e224561d367a522c671447d4ff3e3ac731c202afca0",
+      "elapsed_seconds": 300.047,
+      "status": "running",
+      "timed_out": true,
+      "passed": false,
+      "checks": [
+        {
+          "name": "artifact:billing.py",
+          "passed": true
+        },
+        {
+          "name": "artifact:checks.md",
+          "passed": true
+        },
+        {
+          "name": "19_hidden_billing_cases",
+          "passed": true
+        },
+        {
+          "name": "execution_policy",
+          "passed": true
+        }
+      ],
+      "group_tasks": 1,
+      "group_runs": 2,
+      "artifacts": {
+        "billing.py": "23b3b8202c9be391017d6f9d9b1fad5fe3eb4496294433eb08cfa8874ace0845",
+        "checks.md": "13da272982f1b7ecb22b9deba54c6ff5f03f91e5ab6d44c232c0c58705b83a25"
+      },
+      "tokens": {
+        "inputTokens": 663959,
+        "cachedInputTokens": 622592,
+        "outputTokens": 18491,
+        "reasoningOutputTokens": 6733,
+        "totalTokens": 682450
+      },
+      "usage_sessions": 2,
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "tool_actions": 18,
+      "native_subagent_events": 0,
+      "review_requests": 0,
+      "usd_cost": null,
+      "exported_artifacts": {
+        "billing.py": "artifacts/billing-single-2/billing.py"
+      },
+      "status_after_stop": "interrupted",
+      "run_errors": [
+        "交付检查未通过：Execute behavioral tests for exact totals, input validation, rounding, and edge cases：unverified"
+      ],
+      "native_timeout": false,
+      "member_checks_after_stop": []
+    },
+    {
+      "case": "billing",
+      "mode": "team",
+      "repetition": 2,
+      "project_id": "c3c45546a39f46fe9c111d1832bd17a1",
+      "task_id": "3a89992bc487411ab5801d6095ad32f4",
+      "prompt_sha256": "9ac35b47d9c3c33b396a69166f60b291dd93d698851ba129360055261bdf5a27",
+      "elapsed_seconds": 300.063,
+      "status": "running",
+      "timed_out": true,
+      "passed": false,
+      "checks": [
+        {
+          "name": "artifact:billing.py",
+          "passed": true
+        },
+        {
+          "name": "artifact:checks.md",
+          "passed": false
+        },
+        {
+          "name": "19_hidden_billing_cases",
+          "passed": false,
+          "detail": "Traceback (most recent call last):\n  File \"<string>\", line 8, in <module>\nAssertionError: ([], '0', '0.0', '0.00')\n"
+        },
+        {
+          "name": "execution_policy",
+          "passed": true
+        }
+      ],
+      "group_tasks": 2,
+      "group_runs": 2,
+      "artifacts": {
+        "billing.py": "4048b59b51ea6e2ce8b9a3cd666361596a1ffc7906ae8a753721946d43f306fe"
+      },
+      "tokens": {
+        "inputTokens": 556470,
+        "cachedInputTokens": 531200,
+        "outputTokens": 12979,
+        "reasoningOutputTokens": 2740,
+        "totalTokens": 569449
+      },
+      "usage_sessions": 2,
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "tool_actions": 27,
+      "native_subagent_events": 0,
+      "review_requests": 0,
+      "usd_cost": null,
+      "exported_artifacts": {
+        "billing.py": "artifacts/billing-team-2/billing.py"
+      },
+      "status_after_stop": "failed",
+      "run_errors": [
+        "TimeoutError"
+      ],
+      "native_timeout": true,
+      "member_checks_after_stop": [
+        {
+          "status": "interrupted",
+          "checks": [
+            {
+              "name": "artifact:billing.py",
+              "passed": true
+            },
+            {
+              "name": "artifact:checks.md",
+              "passed": false
+            },
+            {
+              "name": "19_hidden_billing_cases",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "evidence",
+      "mode": "team",
+      "repetition": 2,
+      "project_id": "57368b26960a4730b30a28967ae498df",
+      "task_id": "85f473124c3849cb8387f4867534a6b3",
+      "prompt_sha256": "a7e2a7bbd3220b94531bc30024b72c661e1d85ed7a62a9ffc566cfaaebbc0adc",
+      "elapsed_seconds": 300.079,
+      "status": "running",
+      "timed_out": true,
+      "passed": false,
+      "checks": [
+        {
+          "name": "artifact:report.json",
+          "passed": false
+        },
+        {
+          "name": "artifact:checks.md",
+          "passed": false
+        },
+        {
+          "name": "input_unchanged:sources.json",
+          "passed": true
+        },
+        {
+          "name": "validator_error",
+          "passed": false,
+          "detail": "[Errno 2] No such file or directory: 'C:\\\\Users\\\\51949\\\\Documents\\\\ChatGPT\\\\仿Cindy云端agent\\\\.data\\\\evaluations\\\\acceptance-v1\\\\data\\\\workspaces\\\\57368b26960a4730b30a28967ae498df\\\\main\\\\report.json'"
+        },
+        {
+          "name": "execution_policy",
+          "passed": true
+        }
+      ],
+      "group_tasks": 2,
+      "group_runs": 3,
+      "artifacts": {},
+      "tokens": {
+        "inputTokens": 679913,
+        "cachedInputTokens": 637440,
+        "outputTokens": 24635,
+        "reasoningOutputTokens": 6728,
+        "totalTokens": 704548
+      },
+      "usage_sessions": 3,
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "tool_actions": 25,
+      "native_subagent_events": 0,
+      "review_requests": 0,
+      "usd_cost": null,
+      "exported_artifacts": {},
+      "status_after_stop": "failed",
+      "run_errors": [
+        "TimeoutError",
+        "交付检查未通过：成果文件缺失或为空：delivery.json"
+      ],
+      "native_timeout": true,
+      "member_checks_after_stop": [
+        {
+          "status": "interrupted",
+          "checks": [
+            {
+              "name": "artifact:report.json",
+              "passed": true
+            },
+            {
+              "name": "artifact:checks.md",
+              "passed": true
+            },
+            {
+              "name": "input_unchanged:sources.json",
+              "passed": true
+            },
+            {
+              "name": "exact:recommendation",
+              "passed": true
+            },
+            {
+              "name": "exact:monthly_costs",
+              "passed": true
+            },
+            {
+              "name": "exact:eligible",
+              "passed": true
+            },
+            {
+              "name": "exact:availability_percentage",
+              "passed": true
+            },
+            {
+              "name": "valid_citations",
+              "passed": true
+            },
+            {
+              "name": "required_sources",
+              "passed": true
+            },
+            {
+              "name": "contradiction_cited",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "evidence",
+      "mode": "single",
+      "repetition": 2,
+      "project_id": "cbea73253a764815974801e219829b3d",
+      "task_id": "da32fcc3647b4822836e2b5887fa383a",
+      "prompt_sha256": "b1b04766a0904717143099ca714f26705f9c5bd17697c3cb0a077df1c68c726f",
+      "elapsed_seconds": 156.657,
+      "status": "delivered",
+      "timed_out": false,
+      "passed": true,
+      "checks": [
+        {
+          "name": "artifact:report.json",
+          "passed": true
+        },
+        {
+          "name": "artifact:checks.md",
+          "passed": true
+        },
+        {
+          "name": "input_unchanged:sources.json",
+          "passed": true
+        },
+        {
+          "name": "exact:recommendation",
+          "passed": true
+        },
+        {
+          "name": "exact:monthly_costs",
+          "passed": true
+        },
+        {
+          "name": "exact:eligible",
+          "passed": true
+        },
+        {
+          "name": "exact:availability_percentage",
+          "passed": true
+        },
+        {
+          "name": "valid_citations",
+          "passed": true
+        },
+        {
+          "name": "required_sources",
+          "passed": true
+        },
+        {
+          "name": "contradiction_cited",
+          "passed": true
+        },
+        {
+          "name": "execution_policy",
+          "passed": true
+        }
+      ],
+      "group_tasks": 1,
+      "group_runs": 1,
+      "artifacts": {
+        "report.json": "dfd0a21673d8409da8ed55ba591813da8e07c4f15555fcb16e696c3f806f3040",
+        "checks.md": "188b5c60e9d37075dd738ec7e2b9b1474972ca39ecc9b70b8a9a19379222935b"
+      },
+      "tokens": {
+        "inputTokens": 227173,
+        "cachedInputTokens": 217472,
+        "outputTokens": 6089,
+        "reasoningOutputTokens": 1148,
+        "totalTokens": 233262
+      },
+      "usage_sessions": 1,
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "tool_actions": 10,
+      "native_subagent_events": 0,
+      "review_requests": 0,
+      "usd_cost": null,
+      "exported_artifacts": {
+        "report.json": "artifacts/evidence-single-2/report.json"
+      },
+      "status_after_stop": "delivered",
+      "run_errors": [],
+      "native_timeout": false
+    }
+  ],
+  "loop_rows": [
+    {
+      "trace": "missing_binary",
+      "repetition": 1,
+      "strategy": "fixed_eight",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "missing_binary",
+      "repetition": 1,
+      "strategy": "adaptive_review",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 3,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "stop",
+            "reason": "Three identical attempts failed because the executable is absent in an immutable environment; repeating the command cannot make progress."
+          },
+          "elapsed_seconds": 15.812,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12432,
+            "cachedInputTokens": 0,
+            "outputTokens": 61,
+            "reasoningOutputTokens": 20,
+            "totalTokens": 12493
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "immutable_permission",
+      "repetition": 1,
+      "strategy": "fixed_eight",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "immutable_permission",
+      "repetition": 1,
+      "strategy": "adaptive_review",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 3,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "stop",
+            "reason": "Three identical attempts received the same permanent policy denial, with no changed conditions or progress."
+          },
+          "elapsed_seconds": 11.047,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12425,
+            "cachedInputTokens": 0,
+            "outputTokens": 61,
+            "reasoningOutputTokens": 24,
+            "totalTokens": 12486
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "invalid_schema",
+      "repetition": 1,
+      "strategy": "fixed_eight",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "invalid_schema",
+      "repetition": 1,
+      "strategy": "adaptive_review",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 3,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "stop",
+            "reason": "Three identical attempts returned the same deterministic schema error. The missing email field must be addressed before retrying."
+          },
+          "elapsed_seconds": 12.14,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12418,
+            "cachedInputTokens": 0,
+            "outputTokens": 73,
+            "reasoningOutputTokens": 32,
+            "totalTokens": 12491
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "deleted_resource",
+      "repetition": 1,
+      "strategy": "fixed_eight",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "deleted_resource",
+      "repetition": 1,
+      "strategy": "adaptive_review",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 3,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "stop",
+            "reason": "Three identical requests returned 410 Gone confirming permanent deletion; repeating them cannot retrieve the record."
+          },
+          "elapsed_seconds": 10.281,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12410,
+            "cachedInputTokens": 0,
+            "outputTokens": 57,
+            "reasoningOutputTokens": 19,
+            "totalTokens": 12467
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "transient_startup",
+      "repetition": 1,
+      "strategy": "fixed_eight",
+      "expected_stop": false,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "transient_startup",
+      "repetition": 1,
+      "strategy": "adaptive_review",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 11,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "continue",
+            "reason": "Only 3 of 12 allowed polls have occurred; identical 503 responses are expected during startup, which normally takes 10 attempts."
+          },
+          "elapsed_seconds": 15.344,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12433,
+            "cachedInputTokens": 0,
+            "outputTokens": 72,
+            "reasoningOutputTokens": 25,
+            "totalTokens": 12505
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "bounded_lock",
+      "repetition": 1,
+      "strategy": "fixed_eight",
+      "expected_stop": false,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "bounded_lock",
+      "repetition": 1,
+      "strategy": "adaptive_review",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 11,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "continue",
+            "reason": "These are legitimate retries for a known temporary lock expected to clear after 10 polls; only 3 of 12 authorized retries are shown."
+          },
+          "elapsed_seconds": 12.219,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12419,
+            "cachedInputTokens": 0,
+            "outputTokens": 46,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 12465
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "bounded_queue",
+      "repetition": 1,
+      "strategy": "fixed_eight",
+      "expected_stop": false,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "bounded_queue",
+      "repetition": 1,
+      "strategy": "adaptive_review",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 11,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "continue",
+            "reason": "Pending is expected while polling; three polls are within the 12-poll limit, and the worker takes 10 polls."
+          },
+          "elapsed_seconds": 9.515,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12414,
+            "cachedInputTokens": 0,
+            "outputTokens": 43,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 12457
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "bounded_propagation",
+      "repetition": 1,
+      "strategy": "fixed_eight",
+      "expected_stop": false,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "bounded_propagation",
+      "repetition": 1,
+      "strategy": "adaptive_review",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 11,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "continue",
+            "reason": "Temporary 404s are expected during propagation; three reads remain below the visibility threshold and 12-attempt limit."
+          },
+          "elapsed_seconds": 12.219,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12420,
+            "cachedInputTokens": 11264,
+            "outputTokens": 63,
+            "reasoningOutputTokens": 20,
+            "totalTokens": 12483
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "changing_results",
+      "repetition": 1,
+      "strategy": "fixed_eight",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 13,
+      "reviews": []
+    },
+    {
+      "trace": "changing_results",
+      "repetition": 1,
+      "strategy": "adaptive_review",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 13,
+      "reviews": []
+    },
+    {
+      "trace": "successful_repeats",
+      "repetition": 1,
+      "strategy": "fixed_eight",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 12,
+      "reviews": []
+    },
+    {
+      "trace": "successful_repeats",
+      "repetition": 1,
+      "strategy": "adaptive_review",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 12,
+      "reviews": []
+    },
+    {
+      "trace": "missing_binary",
+      "repetition": 2,
+      "strategy": "fixed_eight",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "missing_binary",
+      "repetition": 2,
+      "strategy": "adaptive_review",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 3,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "stop",
+            "reason": "The same command failed three times because the executable is absent in an immutable environment. Installation is forbidden, so repeating it cannot make progress."
+          },
+          "elapsed_seconds": 10.266,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12416,
+            "cachedInputTokens": 0,
+            "outputTokens": 68,
+            "reasoningOutputTokens": 21,
+            "totalTokens": 12484
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "immutable_permission",
+      "repetition": 2,
+      "strategy": "fixed_eight",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "immutable_permission",
+      "repetition": 2,
+      "strategy": "adaptive_review",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 3,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "stop",
+            "reason": "Three identical attempts received the same permanent policy denial, showing no progress or changed conditions."
+          },
+          "elapsed_seconds": 12.531,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12419,
+            "cachedInputTokens": 11264,
+            "outputTokens": 64,
+            "reasoningOutputTokens": 27,
+            "totalTokens": 12483
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "invalid_schema",
+      "repetition": 2,
+      "strategy": "fixed_eight",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "invalid_schema",
+      "repetition": 2,
+      "strategy": "adaptive_review",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 3,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "stop",
+            "reason": "Three identical attempts returned the same deterministic schema error; the payload must include email before retrying."
+          },
+          "elapsed_seconds": 13.547,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12420,
+            "cachedInputTokens": 11264,
+            "outputTokens": 64,
+            "reasoningOutputTokens": 25,
+            "totalTokens": 12484
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "deleted_resource",
+      "repetition": 2,
+      "strategy": "fixed_eight",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "deleted_resource",
+      "repetition": 2,
+      "strategy": "adaptive_review",
+      "expected_stop": true,
+      "stopped": true,
+      "actions": 3,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "stop",
+            "reason": "Three identical requests returned 410 Gone confirming permanent deletion; repeating them cannot retrieve the record."
+          },
+          "elapsed_seconds": 11.812,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12400,
+            "cachedInputTokens": 0,
+            "outputTokens": 53,
+            "reasoningOutputTokens": 15,
+            "totalTokens": 12453
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "transient_startup",
+      "repetition": 2,
+      "strategy": "fixed_eight",
+      "expected_stop": false,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "transient_startup",
+      "repetition": 2,
+      "strategy": "adaptive_review",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 11,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "continue",
+            "reason": "Only 3 of 12 permitted polls have occurred; identical 503 responses are expected during startup, which normally takes 10 attempts."
+          },
+          "elapsed_seconds": 10.281,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12425,
+            "cachedInputTokens": 11264,
+            "outputTokens": 67,
+            "reasoningOutputTokens": 20,
+            "totalTokens": 12492
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "bounded_lock",
+      "repetition": 2,
+      "strategy": "fixed_eight",
+      "expected_stop": false,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "bounded_lock",
+      "repetition": 2,
+      "strategy": "adaptive_review",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 11,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "continue",
+            "reason": "Only 3 polls are shown; the temporary lock is expected to clear after 10, within the 12 authorized retries with backoff."
+          },
+          "elapsed_seconds": 9.75,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12423,
+            "cachedInputTokens": 11264,
+            "outputTokens": 71,
+            "reasoningOutputTokens": 23,
+            "totalTokens": 12494
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "bounded_queue",
+      "repetition": 2,
+      "strategy": "fixed_eight",
+      "expected_stop": false,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "bounded_queue",
+      "repetition": 2,
+      "strategy": "adaptive_review",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 11,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "continue",
+            "reason": "Only 3 of up to 12 polls have occurred; unchanged pending results are expected until poll 10."
+          },
+          "elapsed_seconds": 9.734,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12414,
+            "cachedInputTokens": 11264,
+            "outputTokens": 64,
+            "reasoningOutputTokens": 22,
+            "totalTokens": 12478
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "bounded_propagation",
+      "repetition": 2,
+      "strategy": "fixed_eight",
+      "expected_stop": false,
+      "stopped": true,
+      "actions": 8,
+      "reviews": []
+    },
+    {
+      "trace": "bounded_propagation",
+      "repetition": 2,
+      "strategy": "adaptive_review",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 11,
+      "reviews": [
+        {
+          "decision": {
+            "decision": "continue",
+            "reason": "Temporary 404s are expected until the object becomes visible after 10 reads; three attempts remain within the 12-attempt limit."
+          },
+          "elapsed_seconds": 11.484,
+          "error": null,
+          "tokens": {
+            "inputTokens": 12428,
+            "cachedInputTokens": 0,
+            "outputTokens": 45,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 12473
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 0,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null
+        }
+      ]
+    },
+    {
+      "trace": "changing_results",
+      "repetition": 2,
+      "strategy": "fixed_eight",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 13,
+      "reviews": []
+    },
+    {
+      "trace": "changing_results",
+      "repetition": 2,
+      "strategy": "adaptive_review",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 13,
+      "reviews": []
+    },
+    {
+      "trace": "successful_repeats",
+      "repetition": 2,
+      "strategy": "fixed_eight",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 12,
+      "reviews": []
+    },
+    {
+      "trace": "successful_repeats",
+      "repetition": 2,
+      "strategy": "adaptive_review",
+      "expected_stop": false,
+      "stopped": false,
+      "actions": 12,
+      "reviews": []
+    }
+  ],
+  "reliability_rows": [
+    {
+      "scenario": "response_lost_retry",
+      "batch": 0,
+      "strategy": "fresh_key_baseline",
+      "attempts": 20,
+      "accepted_assignments": 20,
+      "duplicate_logical_assignments": 19,
+      "consistent_receipts": false
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 0,
+      "strategy": "stable_key",
+      "attempts": 20,
+      "accepted_assignments": 1,
+      "duplicate_logical_assignments": 0,
+      "consistent_receipts": true
+    },
+    {
+      "scenario": "restart_receipt",
+      "batch": 0,
+      "passed": true
+    },
+    {
+      "scenario": "payload_conflict",
+      "batch": 0,
+      "passed": true
+    },
+    {
+      "scenario": "merge_conflict",
+      "batch": 0,
+      "passed": true
+    },
+    {
+      "scenario": "merge_replay",
+      "batch": 0,
+      "passed": true
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 1,
+      "strategy": "fresh_key_baseline",
+      "attempts": 20,
+      "accepted_assignments": 20,
+      "duplicate_logical_assignments": 19,
+      "consistent_receipts": false
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 1,
+      "strategy": "stable_key",
+      "attempts": 20,
+      "accepted_assignments": 1,
+      "duplicate_logical_assignments": 0,
+      "consistent_receipts": true
+    },
+    {
+      "scenario": "restart_receipt",
+      "batch": 1,
+      "passed": true
+    },
+    {
+      "scenario": "payload_conflict",
+      "batch": 1,
+      "passed": true
+    },
+    {
+      "scenario": "merge_conflict",
+      "batch": 1,
+      "passed": true
+    },
+    {
+      "scenario": "merge_replay",
+      "batch": 1,
+      "passed": true
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 2,
+      "strategy": "fresh_key_baseline",
+      "attempts": 20,
+      "accepted_assignments": 20,
+      "duplicate_logical_assignments": 19,
+      "consistent_receipts": false
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 2,
+      "strategy": "stable_key",
+      "attempts": 20,
+      "accepted_assignments": 1,
+      "duplicate_logical_assignments": 0,
+      "consistent_receipts": true
+    },
+    {
+      "scenario": "restart_receipt",
+      "batch": 2,
+      "passed": true
+    },
+    {
+      "scenario": "payload_conflict",
+      "batch": 2,
+      "passed": true
+    },
+    {
+      "scenario": "merge_conflict",
+      "batch": 2,
+      "passed": true
+    },
+    {
+      "scenario": "merge_replay",
+      "batch": 2,
+      "passed": true
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 3,
+      "strategy": "fresh_key_baseline",
+      "attempts": 20,
+      "accepted_assignments": 20,
+      "duplicate_logical_assignments": 19,
+      "consistent_receipts": false
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 3,
+      "strategy": "stable_key",
+      "attempts": 20,
+      "accepted_assignments": 1,
+      "duplicate_logical_assignments": 0,
+      "consistent_receipts": true
+    },
+    {
+      "scenario": "restart_receipt",
+      "batch": 3,
+      "passed": true
+    },
+    {
+      "scenario": "payload_conflict",
+      "batch": 3,
+      "passed": true
+    },
+    {
+      "scenario": "merge_conflict",
+      "batch": 3,
+      "passed": true
+    },
+    {
+      "scenario": "merge_replay",
+      "batch": 3,
+      "passed": true
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 4,
+      "strategy": "fresh_key_baseline",
+      "attempts": 20,
+      "accepted_assignments": 20,
+      "duplicate_logical_assignments": 19,
+      "consistent_receipts": false
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 4,
+      "strategy": "stable_key",
+      "attempts": 20,
+      "accepted_assignments": 1,
+      "duplicate_logical_assignments": 0,
+      "consistent_receipts": true
+    },
+    {
+      "scenario": "restart_receipt",
+      "batch": 4,
+      "passed": true
+    },
+    {
+      "scenario": "payload_conflict",
+      "batch": 4,
+      "passed": true
+    },
+    {
+      "scenario": "merge_conflict",
+      "batch": 4,
+      "passed": true
+    },
+    {
+      "scenario": "merge_replay",
+      "batch": 4,
+      "passed": true
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 5,
+      "strategy": "fresh_key_baseline",
+      "attempts": 20,
+      "accepted_assignments": 20,
+      "duplicate_logical_assignments": 19,
+      "consistent_receipts": false
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 5,
+      "strategy": "stable_key",
+      "attempts": 20,
+      "accepted_assignments": 1,
+      "duplicate_logical_assignments": 0,
+      "consistent_receipts": true
+    },
+    {
+      "scenario": "restart_receipt",
+      "batch": 5,
+      "passed": true
+    },
+    {
+      "scenario": "payload_conflict",
+      "batch": 5,
+      "passed": true
+    },
+    {
+      "scenario": "merge_conflict",
+      "batch": 5,
+      "passed": true
+    },
+    {
+      "scenario": "merge_replay",
+      "batch": 5,
+      "passed": true
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 6,
+      "strategy": "fresh_key_baseline",
+      "attempts": 20,
+      "accepted_assignments": 20,
+      "duplicate_logical_assignments": 19,
+      "consistent_receipts": false
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 6,
+      "strategy": "stable_key",
+      "attempts": 20,
+      "accepted_assignments": 1,
+      "duplicate_logical_assignments": 0,
+      "consistent_receipts": true
+    },
+    {
+      "scenario": "restart_receipt",
+      "batch": 6,
+      "passed": true
+    },
+    {
+      "scenario": "payload_conflict",
+      "batch": 6,
+      "passed": true
+    },
+    {
+      "scenario": "merge_conflict",
+      "batch": 6,
+      "passed": true
+    },
+    {
+      "scenario": "merge_replay",
+      "batch": 6,
+      "passed": true
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 7,
+      "strategy": "fresh_key_baseline",
+      "attempts": 20,
+      "accepted_assignments": 20,
+      "duplicate_logical_assignments": 19,
+      "consistent_receipts": false
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 7,
+      "strategy": "stable_key",
+      "attempts": 20,
+      "accepted_assignments": 1,
+      "duplicate_logical_assignments": 0,
+      "consistent_receipts": true
+    },
+    {
+      "scenario": "restart_receipt",
+      "batch": 7,
+      "passed": true
+    },
+    {
+      "scenario": "payload_conflict",
+      "batch": 7,
+      "passed": true
+    },
+    {
+      "scenario": "merge_conflict",
+      "batch": 7,
+      "passed": true
+    },
+    {
+      "scenario": "merge_replay",
+      "batch": 7,
+      "passed": true
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 8,
+      "strategy": "fresh_key_baseline",
+      "attempts": 20,
+      "accepted_assignments": 20,
+      "duplicate_logical_assignments": 19,
+      "consistent_receipts": false
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 8,
+      "strategy": "stable_key",
+      "attempts": 20,
+      "accepted_assignments": 1,
+      "duplicate_logical_assignments": 0,
+      "consistent_receipts": true
+    },
+    {
+      "scenario": "restart_receipt",
+      "batch": 8,
+      "passed": true
+    },
+    {
+      "scenario": "payload_conflict",
+      "batch": 8,
+      "passed": true
+    },
+    {
+      "scenario": "merge_conflict",
+      "batch": 8,
+      "passed": true
+    },
+    {
+      "scenario": "merge_replay",
+      "batch": 8,
+      "passed": true
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 9,
+      "strategy": "fresh_key_baseline",
+      "attempts": 20,
+      "accepted_assignments": 20,
+      "duplicate_logical_assignments": 19,
+      "consistent_receipts": false
+    },
+    {
+      "scenario": "response_lost_retry",
+      "batch": 9,
+      "strategy": "stable_key",
+      "attempts": 20,
+      "accepted_assignments": 1,
+      "duplicate_logical_assignments": 0,
+      "consistent_receipts": true
+    },
+    {
+      "scenario": "restart_receipt",
+      "batch": 9,
+      "passed": true
+    },
+    {
+      "scenario": "payload_conflict",
+      "batch": 9,
+      "passed": true
+    },
+    {
+      "scenario": "merge_conflict",
+      "batch": 9,
+      "passed": true
+    },
+    {
+      "scenario": "merge_replay",
+      "batch": 9,
+      "passed": true
+    }
+  ],
+  "supplementary_diagnostics": [
+    {
+      "label": "billing-600s",
+      "artifact_base": "diagnostic/1",
+      "metadata": {
+        "dataset_version": "1.0",
+        "started_utc": "2026-11-06T13:18:51.148569+00:00",
+        "repeats": 1,
+        "timeout": 600,
+        "cases": [
+          "billing"
+        ],
+        "modes": [
+          "single",
+          "team"
+        ],
+        "python": "3.12.10",
+        "native_version": "codex-cli 0.166.0-alpha.6",
+        "git_commit": "b95273ce44995de4a76b5f191d7f96d6c0e2f7f6",
+        "dirty_tree": true,
+        "runner": "trusted-local",
+        "source_sha256": {
+          "evaluations\\cases.py": "62ba6ab1c70eaa07ec2b432ea649382f21920f7d88955772732669a381862f12",
+          "evaluations\\live.py": "3e8b87f509424cbaaafc3d2ef6f9993bfc024b8a0585c7fe0304d9dff94b7bbb",
+          "backend\\workbench\\runner.py": "75bdd468a29829885f8df0143b39dbebc815687f31420c9d2cb99f2c18971afe",
+          "backend\\workbench\\runtime.py": "2fd85bd33e5ed1bdbc0d861f143345ac1827d8104176abc1bab6e1583bbbc750",
+          "backend\\workbench\\workflow.py": "e32033328f67ea718af3ffcb89554ba8858f2b6e6788b87306282304a60705e8"
+        }
+      },
+      "summary": {
+        "single": {
+          "runs": 1,
+          "passed": 1,
+          "pass_rate": 1.0,
+          "median_seconds_all_runs": 241.922,
+          "median_total_tokens_observed": 339835,
+          "runs_with_usage": 1,
+          "median_uncached_input_tokens_observed": 25005,
+          "median_output_tokens_observed": 9166
+        },
+        "team": {
+          "runs": 1,
+          "passed": 0,
+          "pass_rate": 0.0,
+          "median_seconds_all_runs": 600.047,
+          "median_total_tokens_observed": 1293702,
+          "runs_with_usage": 1,
+          "median_uncached_input_tokens_observed": 116719,
+          "median_output_tokens_observed": 42263
+        }
+      },
+      "rows": [
+        {
+          "case": "billing",
+          "mode": "single",
+          "repetition": 1,
+          "project_id": "ba5a2ea8975f48ccbd3d9558e5ef8c1d",
+          "task_id": "e37a74524ebf4a28a966caafcb92c74e",
+          "prompt_sha256": "bf787e099b8b7fd075411e224561d367a522c671447d4ff3e3ac731c202afca0",
+          "elapsed_seconds": 241.922,
+          "status": "delivered",
+          "timed_out": false,
+          "passed": true,
+          "checks": [
+            {
+              "name": "artifact:billing.py",
+              "passed": true
+            },
+            {
+              "name": "artifact:checks.md",
+              "passed": true
+            },
+            {
+              "name": "19_hidden_billing_cases",
+              "passed": true
+            },
+            {
+              "name": "execution_policy",
+              "passed": true
+            }
+          ],
+          "group_tasks": 1,
+          "group_runs": 1,
+          "artifacts": {
+            "billing.py": "e79de4bc05e3bc5b3740c5a89cf0c56a99370666d5314464efced62f44111c29",
+            "checks.md": "7e56d5667c8f2d901a36ed56388db58fde566cb58cd96818ead4611ea61c24b0"
+          },
+          "tokens": {
+            "inputTokens": 330669,
+            "cachedInputTokens": 305664,
+            "outputTokens": 9166,
+            "reasoningOutputTokens": 3557,
+            "totalTokens": 339835
+          },
+          "usage_sessions": 1,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 12,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null,
+          "run_errors": [],
+          "exported_artifacts": {
+            "billing.py": "artifacts/billing-single-1/billing.py"
+          }
+        },
+        {
+          "case": "billing",
+          "mode": "team",
+          "repetition": 1,
+          "project_id": "c52a3f59ad19429c9f22dba33670446f",
+          "task_id": "541a8867c6cd458dad81f385fe5a0af5",
+          "prompt_sha256": "9ac35b47d9c3c33b396a69166f60b291dd93d698851ba129360055261bdf5a27",
+          "elapsed_seconds": 600.047,
+          "status": "running",
+          "timed_out": true,
+          "passed": false,
+          "checks": [
+            {
+              "name": "artifact:billing.py",
+              "passed": true
+            },
+            {
+              "name": "artifact:checks.md",
+              "passed": true
+            },
+            {
+              "name": "19_hidden_billing_cases",
+              "passed": true
+            },
+            {
+              "name": "execution_policy",
+              "passed": true
+            }
+          ],
+          "group_tasks": 3,
+          "group_runs": 4,
+          "artifacts": {
+            "billing.py": "384ef5e4aa0a5b7e0077654232274d03747959e93730788e91867c5da690767e",
+            "checks.md": "d963d72865f568aef6505cf89c7cc46c7fa588dc3091f5890fe62ddde831acbf"
+          },
+          "tokens": {
+            "inputTokens": 1251439,
+            "cachedInputTokens": 1134720,
+            "outputTokens": 42263,
+            "reasoningOutputTokens": 12113,
+            "totalTokens": 1293702
+          },
+          "usage_sessions": 4,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 32,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null,
+          "scoring_correction": {
+            "version": "1.0.1",
+            "raw_policy_passed": false,
+            "raw_overall_passed": false,
+            "corrected_policy_passed": true,
+            "reason": "Exactly one persistent worker permits multiple repair assignments; raw results.jsonl retained unchanged"
+          },
+          "run_errors": [
+            "交付检查未通过：Worker produces implementation, tests and valid delivery.json：failed",
+            "'utf-8' codec can't encode characters in position 119-120: surrogates not allowed"
+          ],
+          "exported_artifacts": {
+            "billing.py": "artifacts/billing-team-1/billing.py"
+          }
+        }
+      ]
+    },
+    {
+      "label": "billing-unicode-fixed",
+      "artifact_base": "diagnostic/2",
+      "metadata": {
+        "dataset_version": "1.0",
+        "started_utc": "2026-11-06T13:35:28.144831+00:00",
+        "repeats": 1,
+        "timeout": 600,
+        "cases": [
+          "billing"
+        ],
+        "modes": [
+          "team"
+        ],
+        "python": "3.12.10",
+        "native_version": "codex-cli 0.166.0-alpha.6",
+        "git_commit": "b95273ce44995de4a76b5f191d7f96d6c0e2f7f6",
+        "dirty_tree": true,
+        "runner": "trusted-local",
+        "source_sha256": {
+          "evaluations\\cases.py": "62ba6ab1c70eaa07ec2b432ea649382f21920f7d88955772732669a381862f12",
+          "evaluations\\live.py": "90ca44f91dcc30c194738f50c3b9971561885e89411e9534caab5df4cbfb2f3c",
+          "backend\\workbench\\runner.py": "75bdd468a29829885f8df0143b39dbebc815687f31420c9d2cb99f2c18971afe",
+          "backend\\workbench\\runtime.py": "2fd85bd33e5ed1bdbc0d861f143345ac1827d8104176abc1bab6e1583bbbc750",
+          "backend\\workbench\\workflow.py": "e32033328f67ea718af3ffcb89554ba8858f2b6e6788b87306282304a60705e8"
+        }
+      },
+      "summary": {
+        "team": {
+          "runs": 1,
+          "passed": 0,
+          "pass_rate": 0.0,
+          "median_seconds_all_runs": 301.547,
+          "median_total_tokens_observed": 589677,
+          "runs_with_usage": 1,
+          "median_uncached_input_tokens_observed": 45394,
+          "median_output_tokens_observed": 12827
+        }
+      },
+      "rows": [
+        {
+          "case": "billing",
+          "mode": "team",
+          "repetition": 1,
+          "project_id": "b450b18456574167990a083f7f7f38f6",
+          "task_id": "4472561986104bcda455c2fad44777f5",
+          "prompt_sha256": "9ac35b47d9c3c33b396a69166f60b291dd93d698851ba129360055261bdf5a27",
+          "elapsed_seconds": 301.547,
+          "status": "failed",
+          "timed_out": false,
+          "passed": false,
+          "checks": [
+            {
+              "name": "artifact:billing.py",
+              "passed": true
+            },
+            {
+              "name": "artifact:checks.md",
+              "passed": false
+            },
+            {
+              "name": "19_hidden_billing_cases",
+              "passed": false,
+              "detail": "Traceback (most recent call last):\n  File \"<string>\", line 8, in <module>\nAssertionError: ([], '0', '0.0', '0.00')\n"
+            },
+            {
+              "name": "execution_policy",
+              "passed": true
+            }
+          ],
+          "group_tasks": 2,
+          "group_runs": 2,
+          "artifacts": {
+            "billing.py": "4048b59b51ea6e2ce8b9a3cd666361596a1ffc7906ae8a753721946d43f306fe"
+          },
+          "tokens": {
+            "inputTokens": 576850,
+            "cachedInputTokens": 531456,
+            "outputTokens": 12827,
+            "reasoningOutputTokens": 5706,
+            "totalTokens": 589677
+          },
+          "usage_sessions": 2,
+          "models": [
+            "gpt-6.1-sol"
+          ],
+          "tool_actions": 23,
+          "native_subagent_events": 0,
+          "review_requests": 0,
+          "usd_cost": null,
+          "run_errors": [
+            "{\"message\": \"You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at Nov 7th, 2026 1:39 AM.\", \"codexErrorInfo\": \"usageLimitExceeded\", \"additionalDetails\": null, \"misalignment\": null}",
+            "{\"message\": \"You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at Nov 7th, 2026 1:39 AM.\", \"codexErrorInfo\": \"usageLimitExceeded\", \"additionalDetails\": null, \"misalignment\": null}"
+          ],
+          "exported_artifacts": {
+            "billing.py": "artifacts/billing-team-1/billing.py"
+          }
+        }
+      ]
+    }
+  ]
+}

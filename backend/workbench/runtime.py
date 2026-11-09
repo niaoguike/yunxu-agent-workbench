@@ -138,7 +138,11 @@ class RuntimeManager:
         proc = None
         terminal = False
         try:
-            worker_env = os.environ.copy()
+            worker_env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("WORKBENCH_CHANNEL_")
+            }
             if self.settings.runner == "trusted-local":
                 # Native shells must see the same Python toolchain as the platform.
                 worker_env["PATH"] = (

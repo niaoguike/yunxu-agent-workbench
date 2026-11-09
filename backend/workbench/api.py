@@ -1,4 +1,6 @@
 import asyncio
+import csv
+import io
 import hashlib
 import hmac
 import json
@@ -18,6 +20,8 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .automations import Routines, RoutineInput, ConnectionInput, next_due, token_names
+from .charts import ChartConfig, ChartRevision, parse_csv, save_revision, ChartConflict
 from .config import Settings
 from .files import digest, import_zip, inventory, safe_path
 from .runtime import RuntimeManager
@@ -91,6 +95,17 @@ class ExtensionInput(BaseModel):
     enabled: bool = True
 
 
+class PluginInput(BaseModel):
+    name: str = Field(min_length=1, max_length=30, pattern=r"^[A-Za-z0-9_-]+$")
+    version: str = Field(min_length=1, max_length=40)
+    source: str = Field(default="用户导入", max_length=500)
+    extensions: list[ExtensionInput] = Field(min_length=1, max_length=10)
+
+
+class ToggleInput(BaseModel):
+    enabled: bool
+
+
 class MemberInput(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     role: str = Field(min_length=1, max_length=2000)
@@ -124,16 +139,22 @@ def create_app(settings: Settings | None = None, runtime=None):
     store = Store(settings.data_dir / "workbench.sqlite3")
     runtime = runtime or RuntimeManager(settings)
     workflow = Workflow(store, settings, runtime)
+    routines = Routines(store, workflow, runtime)
 
     @asynccontextmanager
     async def lifespan(app):
         workflow.recover()
-        yield
-        await workflow.close()
+        routines.start()
+        try:
+            yield
+        finally:
+            await routines.close()
+            await workflow.close()
         store.connection.close()
 
     app = FastAPI(title="Agent Workbench", lifespan=lifespan)
     app.state.settings, app.state.store, app.state.workflow = settings, store, workflow
+    app.state.routines = routines
 
     @app.middleware("http")
     async def security(request, call_next):
@@ -217,6 +238,7 @@ def create_app(settings: Settings | None = None, runtime=None):
     async def health():
         return {
             "status": "ok",
+            "automation_error": routines.last_error or routines.delivery_error,
             "runner": settings.runner,
             "stages": [stage[0] for stage in STAGES],
         }
@@ -250,6 +272,25 @@ def create_app(settings: Settings | None = None, runtime=None):
     @app.get("/api/auth/me")
     async def me(owner=Depends(user)):
         return owner
+
+    @app.get("/api/resume")
+    async def resume(owner=Depends(user)):
+        return store.one(
+            "SELECT t.id AS task_id,t.project_id FROM resume_positions r "
+            "JOIN tasks t ON t.id=r.task_id JOIN projects p ON p.id=t.project_id "
+            "WHERE r.user_id=? AND p.owner_id=? AND p.deleted_at IS NULL",
+            (owner["id"], owner["id"]),
+        )
+
+    @app.put("/api/resume/{task_id}")
+    async def save_resume(task_id: str, owner=Depends(user)):
+        task_owned(task_id, owner)
+        store.execute(
+            "INSERT INTO resume_positions(user_id,task_id) VALUES(?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET task_id=excluded.task_id",
+            (owner["id"], task_id),
+        )
+        return {"ok": True}
 
     @app.patch("/api/auth/me")
     async def update_me(body: FileInput, owner=Depends(user)):
@@ -332,6 +373,15 @@ def create_app(settings: Settings | None = None, runtime=None):
         await stop_project(project_id)
         return project_owned(project_id, owner)
 
+    @app.get("/api/projects/{project_id}/history/search")
+    def search_history(project_id: str, q: str, limit: int = 20, owner=Depends(user)):
+        project_owned(project_id, owner)
+        from .history_search import HistorySearch
+        try:
+            return HistorySearch(store).search(project_id, q, limit)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
     @app.get("/api/projects/{project_id}/tasks")
     async def tasks(project_id: str, owner=Depends(user)):
         project_owned(project_id, owner)
@@ -364,6 +414,220 @@ def create_app(settings: Settings | None = None, runtime=None):
     async def create_task(project_id: str, body: TaskInput, owner=Depends(user)):
         project_owned(project_id, owner)
         return insert_task(project_id, body)
+
+    def routine_owned(routine_id, owner):
+        item = store.one("SELECT * FROM routines WHERE id=?", (routine_id,))
+        if not item:
+            raise HTTPException(404, "自动化不存在")
+        project_owned(item["project_id"], owner)
+        return item
+
+    def connection_owned(connection_id, owner):
+        item = routines.connection(connection_id)
+        if not item:
+            raise HTTPException(404, "连接不存在")
+        project_owned(item["project_id"], owner)
+        return item
+
+    def check_destination(project_id, body):
+        if body.connection_id:
+            connection = routines.connection(body.connection_id)
+            if not connection or connection["project_id"] != project_id:
+                raise HTTPException(400, "请选择当前项目的渠道连接")
+
+    @app.get("/api/projects/{project_id}/routines")
+    async def list_routines(project_id: str, owner=Depends(user)):
+        project_owned(project_id, owner)
+        result = store.all(
+            "SELECT * FROM routines WHERE project_id=? ORDER BY created_at DESC",
+            (project_id,),
+        )
+        for item in result:
+            item["config"] = json.loads(item["config"])
+            item["runs"] = store.all(
+                "SELECT rr.*,t.status AS task_status FROM routine_runs rr LEFT JOIN tasks t ON t.id=rr.task_id WHERE rr.routine_id=? ORDER BY rr.created_at DESC LIMIT 30",
+                (item["id"],),
+            )
+        return result
+
+    @app.post("/api/projects/{project_id}/routines", status_code=201)
+    async def add_routine(project_id: str, body: RoutineInput, owner=Depends(user)):
+        project_owned(project_id, owner)
+        check_destination(project_id, body)
+        routine_id = uid()
+        config = body.model_dump()
+        store.execute(
+            "INSERT INTO routines VALUES(?,?,?,?,?,?)",
+            (
+                routine_id,
+                project_id,
+                json.dumps(config, ensure_ascii=False),
+                body.enabled,
+                next_due(config, now()),
+                now(),
+            ),
+        )
+        return {"id": routine_id}
+
+    @app.put("/api/routines/{routine_id}")
+    async def update_routine(routine_id: str, body: RoutineInput, owner=Depends(user)):
+        item = routine_owned(routine_id, owner)
+        check_destination(item["project_id"], body)
+        config = body.model_dump()
+        store.execute(
+            "UPDATE routines SET config=?,enabled=?,next_due=? WHERE id=?",
+            (
+                json.dumps(config, ensure_ascii=False),
+                body.enabled,
+                next_due(config, now()),
+                routine_id,
+            ),
+        )
+        return {"ok": True}
+
+    @app.post("/api/routines/{routine_id}/run", status_code=201)
+    async def run_routine(routine_id: str, owner=Depends(user)):
+        routine_owned(routine_id, owner)
+        return await routines.fire(routine_id)
+
+    @app.get("/api/projects/{project_id}/connections")
+    async def list_connections(project_id: str, owner=Depends(user)):
+        project_owned(project_id, owner)
+        result = store.all(
+            "SELECT * FROM channel_connections WHERE project_id=? ORDER BY created_at DESC",
+            (project_id,),
+        )
+        for item in result:
+            item.update(token_names(item["id"]))
+            item["configured"] = routines.configured(item)
+            if item["enabled"] and not item["configured"]:
+                item["status"] = "missing_credentials"
+            item["inbox"] = store.all(
+                "SELECT * FROM channel_events WHERE connection_id=? ORDER BY created_at DESC LIMIT 20",
+                (item["id"],),
+            )
+            item["outbox"] = store.all(
+                "SELECT * FROM channel_outbox WHERE connection_id=? ORDER BY created_at DESC LIMIT 20",
+                (item["id"],),
+            )
+        return result
+
+    @app.post("/api/projects/{project_id}/connections", status_code=201)
+    async def add_connection(
+        project_id: str, body: ConnectionInput, owner=Depends(user)
+    ):
+        project_owned(project_id, owner)
+        connection_id = uid()
+        store.execute(
+            "INSERT INTO channel_connections(id,project_id,name,provider,chat_id,user_id,engine,permission_mode,receive,send,enabled,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                connection_id,
+                project_id,
+                body.name,
+                body.provider,
+                body.chat_id,
+                body.user_id,
+                body.engine,
+                body.permission_mode,
+                body.receive,
+                body.send,
+                body.enabled,
+                now(),
+            ),
+        )
+        return {"id": connection_id, **token_names(connection_id)}
+
+    @app.put("/api/connections/{connection_id}")
+    async def update_connection(
+        connection_id: str, body: ConnectionInput, owner=Depends(user)
+    ):
+        item = connection_owned(connection_id, owner)
+        if body.provider != item["provider"]:
+            raise HTTPException(400, "连接类型不能修改，请新建连接")
+        # Changing sender/chat would reroute historical results. Use a new connection instead.
+        if body.chat_id != item["chat_id"] or body.user_id != item["user_id"]:
+            raise HTTPException(400, "聊天和用户不能修改，请新建连接以保留历史归属")
+        for key, value in body.model_dump().items():
+            store.execute(
+                f"UPDATE channel_connections SET {key}=? WHERE id=?",
+                (value, connection_id),
+            )
+        store.execute(
+            "UPDATE channel_connections SET status=?,error='' WHERE id=?",
+            ("connecting" if body.enabled else "disabled", connection_id),
+        )
+        job = routines.receivers.pop(connection_id, None)
+        if job:
+            job.cancel()
+            await asyncio.gather(job, return_exceptions=True)
+        return {"ok": True}
+
+    @app.post("/api/connections/{connection_id}/check")
+    async def check_connection(connection_id: str, owner=Depends(user)):
+        item = connection_owned(connection_id, owner)
+        try:
+            method = "auth.test" if item["provider"] == "slack" else "getMe"
+            await routines.transport.call(item, method)
+            return {
+                "ok": True,
+                "detail": "机器人身份验证通过；接收和发送权限需实际配置后验证",
+            }
+        except Exception:
+            raise HTTPException(
+                409, "连接验证失败，请检查环境变量、网络和机器人权限"
+            ) from None
+
+    @app.post("/api/tasks/{task_id}/handoff/{connection_id}", status_code=201)
+    async def handoff(task_id: str, connection_id: str, owner=Depends(user)):
+        task = task_owned(task_id, owner)
+        connection = connection_owned(connection_id, owner)
+        if task["member_id"] or connection["project_id"] != task["project_id"]:
+            raise HTTPException(400, "仅可交接当前项目的主任务")
+        if (
+            not connection["enabled"]
+            or not connection["send"]
+            or not routines.configured(connection)
+        ):
+            raise HTTPException(409, "请先配置并启用渠道及发送权限")
+        store.execute(
+            "INSERT OR IGNORE INTO channel_threads VALUES(?,?,?,?)",
+            (connection_id, "handoff-" + task_id, task_id, ""),
+        )
+        store.execute(
+            "INSERT OR IGNORE INTO channel_outbox VALUES(?,?,?,?,?,?,?,?)",
+            (
+                uid(),
+                connection_id,
+                task_id,
+                (
+                    f"{task['version']}:{task['status']}"
+                    if task["status"]
+                    in {"delivered", "completed", "failed", "interrupted", "review"}
+                    else "handoff:" + str(task["version"])
+                ),
+                "pending",
+                "",
+                "",
+                now(),
+            ),
+        )
+        return {"status": "pending", "detail": "已排队，发送状态可在渠道记录查看"}
+
+    @app.post("/api/outbox/{outbox_id}/retry")
+    async def retry_outbox(outbox_id: str, owner=Depends(user)):
+        item = store.one("SELECT * FROM channel_outbox WHERE id=?", (outbox_id,))
+        if not item:
+            raise HTTPException(404, "发送记录不存在")
+        connection_owned(item["connection_id"], owner)
+        if item["status"] != "failed":
+            raise HTTPException(
+                409, "仅明确失败的发送可重试；结果不明时请先检查外部聊天"
+            )
+        store.execute(
+            "UPDATE channel_outbox SET status='pending',error='' WHERE id=?",
+            (outbox_id,),
+        )
+        return {"ok": True}
 
     @app.get("/api/tasks/{task_id}")
     async def get_task(task_id: str, owner=Depends(user)):
@@ -434,6 +698,92 @@ def create_app(settings: Settings | None = None, runtime=None):
             },
         )
         return store.one("SELECT * FROM tasks WHERE id=?", (task_id,))
+
+    def chart_owned(chart_id, owner):
+        chart = store.one("SELECT * FROM charts WHERE id=?", (chart_id,))
+        if not chart:
+            raise HTTPException(404, "图表不存在")
+        task_owned(chart["task_id"], owner)
+        return chart
+
+    @app.get("/api/tasks/{task_id}/charts")
+    async def charts(task_id: str, owner=Depends(user)):
+        task_owned(task_id, owner)
+        result = store.all(
+            "SELECT * FROM charts WHERE task_id=? ORDER BY created_at", (task_id,)
+        )
+        for chart in result:
+            chart["data"] = json.loads(chart["data"])
+            chart["versions"] = store.all(
+                "SELECT * FROM chart_versions WHERE chart_id=? ORDER BY version",
+                (chart["id"],),
+            )
+            for version in chart["versions"]:
+                version["config"] = json.loads(version["config"])
+        return result
+
+    @app.post("/api/tasks/{task_id}/charts", status_code=201)
+    async def create_chart(
+        task_id: str, file: UploadFile = File(...), owner=Depends(user)
+    ):
+        task = task_owned(task_id, owner)
+        if task["member_id"]:
+            raise HTTPException(400, "请在主任务中生成图表")
+        try:
+            data = parse_csv(await file.read(2_000_001))
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        chart_id = uid()
+        source = f"charts/{chart_id}.csv"
+        # A private snapshot is the source of every later version, even if the file changes.
+        root = project_workspace(task["project_id"])
+        target = checked_path(root, source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        buffer = io.StringIO(newline="")
+        csv.writer(buffer).writerows([data["columns"], *data["rows"]])
+        target.write_text(buffer.getvalue(), encoding="utf-8")
+        config = ChartConfig(
+            title=(file.filename or "CSV 图表")[:160],
+            x=data["columns"][0],
+            y=data["numeric"][0],
+        ).model_dump()
+        with store.transaction() as db:
+            db.execute(
+                "INSERT INTO charts VALUES(?,?,?,?,?)",
+                (
+                    chart_id,
+                    task_id,
+                    source,
+                    json.dumps(data, ensure_ascii=False),
+                    now(),
+                ),
+            )
+            db.execute(
+                "INSERT INTO chart_versions VALUES(?,?,?,?)",
+                (chart_id, 1, json.dumps(config, ensure_ascii=False), now()),
+            )
+            db.execute(
+                "INSERT INTO messages VALUES(?,?,?,?,?)",
+                (
+                    uid(),
+                    task_id,
+                    "user",
+                    f"上传 CSV 并生成图表：{config['title']}（版本 1）",
+                    now(),
+                ),
+            )
+        store.event(task_id, "chart_created", {"chart_id": chart_id, "version": 1})
+        return {"id": chart_id}
+
+    @app.post("/api/charts/{chart_id}/versions", status_code=201)
+    async def revise_chart(chart_id: str, body: ChartRevision, owner=Depends(user)):
+        chart = chart_owned(chart_id, owner)
+        try:
+            return {"version": save_revision(store, chart, body)}
+        except ChartConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
 
     @app.post("/api/tasks/{task_id}/messages", status_code=201)
     async def send(task_id: str, body: Content, owner=Depends(user)):
@@ -936,6 +1286,94 @@ def create_app(settings: Settings | None = None, runtime=None):
                     )
             except (ValueError, TypeError) as error:
                 raise HTTPException(400, str(error)) from error
+
+    @app.get("/api/projects/{project_id}/plugins")
+    async def list_plugins(project_id: str, owner=Depends(user)):
+        project_owned(project_id, owner)
+        result = store.all(
+            "SELECT * FROM plugins WHERE project_id=? ORDER BY created_at DESC",
+            (project_id,),
+        )
+        for item in result:
+            item["extensions"] = store.all(
+                "SELECT e.* FROM extensions e JOIN plugin_extensions pe ON pe.extension_id=e.id WHERE pe.plugin_id=?",
+                (item["id"],),
+            )
+        return result
+
+    @app.post("/api/projects/{project_id}/plugins", status_code=201)
+    async def install_plugin(project_id: str, body: PluginInput, owner=Depends(user)):
+        project_owned(project_id, owner)
+        if store.one(
+            "SELECT id FROM plugins WHERE project_id=? AND name=? AND version=?",
+            (project_id, body.name, body.version),
+        ):
+            raise HTTPException(409, "该版本插件已导入")
+        entries = []
+        for item in body.extensions:
+            if len(body.name + "-" + item.name) > 80:
+                raise HTTPException(400, "插件和扩展合并后的名称不能超过 80 字符")
+            parsed = ExtensionInput(
+                **{
+                    **item.model_dump(),
+                    "name": body.name + "-" + item.name,
+                    "enabled": False,
+                }
+            )
+            validate_extension(parsed)
+            if parsed.name in [e.name for e in entries] or store.one(
+                "SELECT id FROM extensions WHERE project_id=? AND name=?",
+                (project_id, parsed.name),
+            ):
+                raise HTTPException(409, "插件扩展名称冲突")
+            entries.append(parsed)
+        plugin_id = uid()
+        manifest = body.model_dump_json()
+        with store.transaction() as db:
+            db.execute(
+                "INSERT INTO plugins VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    plugin_id,
+                    project_id,
+                    body.name,
+                    body.version,
+                    body.source,
+                    hashlib.sha256(manifest.encode()).hexdigest(),
+                    manifest,
+                    now(),
+                ),
+            )
+            for item in entries:
+                extension_id = uid()
+                db.execute(
+                    "INSERT INTO extensions(id,project_id,name,kind,content,enabled,created_at) VALUES(?,?,?,?,?,0,?)",
+                    (
+                        extension_id,
+                        project_id,
+                        item.name,
+                        item.kind,
+                        item.content,
+                        now(),
+                    ),
+                )
+                db.execute(
+                    "INSERT INTO plugin_extensions VALUES(?,?)",
+                    (plugin_id, extension_id),
+                )
+        return {
+            "id": plugin_id,
+            "detail": "已导入并保持停用，请查看内容后启用；未进行来源安全审核",
+        }
+
+    @app.put("/api/plugins/{plugin_id}/enabled")
+    async def toggle_plugin(plugin_id: str, body: ToggleInput, owner=Depends(user)):
+        item = child_owned("plugins", plugin_id, owner)
+        store.execute(
+            "UPDATE extensions SET enabled=?,revision=revision+1 WHERE id IN (SELECT extension_id FROM plugin_extensions WHERE plugin_id=?)",
+            (body.enabled, plugin_id),
+        )
+        await stop_project(item["project_id"])
+        return {"ok": True}
 
     @app.get("/api/projects/{project_id}/extensions")
     async def extensions(project_id: str, owner=Depends(user)):

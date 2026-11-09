@@ -7,7 +7,7 @@ name = "agent-workbench"
 version = "0.1.0"
 description = "Human-in-the-loop workbench powered by native coding agents"
 requires-python = ">=3.12"
-dependencies = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1", "python-multipart>=0.0.20,<1", "claude-agent-sdk==0.2.177"]
+dependencies = ["sqlite-vec>=0.1.6,<0.2", "fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1", "python-multipart>=0.0.20,<1", "claude-agent-sdk==0.2.177", "websockets>=14,<18"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "httpx>=0.28,<1", "pytest-asyncio>=0.25,<2"]

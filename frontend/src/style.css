@@ -552,3 +552,122 @@ pre {
     flex-direction: column;
   }
 }
+
+.chart-card {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid #cbd2e4;
+  border-radius: 12px;
+  background: white;
+}
+.chart-card header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+.chart-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.chart-controls label {
+  display: grid;
+  gap: 4px;
+}
+.chart-card svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.chart-card button {
+  margin: 8px 8px 0 0;
+}
+.charts > label {
+  display: grid;
+  gap: 6px;
+}
+.charts small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.chart-data {
+  max-height: 280px;
+  overflow: auto;
+}
+.chart-data th,
+.chart-data td {
+  padding: 5px 10px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+  white-space: pre-wrap;
+}
+
+.tabs {
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.tabs button {
+  white-space: nowrap;
+}
+.automation-panel {
+  overflow-wrap: anywhere;
+}
+.automation-panel p,
+.automation-panel small {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.automation-form,
+.automation-form label,
+.automation-panel > label {
+  display: grid;
+  gap: 6px;
+}
+.automation-form {
+  gap: 10px;
+  padding-bottom: 14px;
+}
+.automation-form label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+}
+.automation-form textarea,
+.automation-panel > label textarea {
+  width: 100%;
+  min-height: 90px;
+}
+.automation-card {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #d6dfd5;
+  border-radius: 10px;
+}
+.automation-card button {
+  margin: 6px 6px 6px 0;
+}
+.automation-card code,
+.automation-card pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.automation-record {
+  border-top: 1px solid #ddd;
+  padding: 8px 0;
+  font-size: 12px;
+}
+
+.automation-form input:not([type="checkbox"]),
+.automation-form select,
+.automation-form textarea,
+.automation-panel > label textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid #cbd4c9;
+  border-radius: 6px;
+  font: inherit;
+  background: white;
+}

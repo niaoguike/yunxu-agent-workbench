@@ -5,6 +5,7 @@ import hashlib
 import json
 import shutil
 
+from .charts import ChartRevision, save_revision
 from .files import digest, inventory, safe_path
 from .store import now, uid
 
@@ -278,6 +279,23 @@ class Collaboration:
         task = self.store.one("SELECT * FROM tasks WHERE id=?", (task_id,))
         if not task or task["status"] not in {"running", "waiting_permission"}:
             raise ValueError("任务已停止或不在可调用状态")
+        if name in {"chart_list", "chart_revise"}:
+            project = self.store.one("SELECT id FROM projects WHERE id=? AND deleted_at IS NULL", (task["project_id"],))
+            if task["member_id"] or task["status"] not in {"running", "waiting_permission"} or not project:
+                raise ValueError("图表工具仅供当前执行中的主任务使用")
+            if name == "chart_list":
+                charts = self.store.all("SELECT * FROM charts WHERE task_id=? ORDER BY created_at", (task_id,))
+                result = []
+                for chart in charts:
+                    latest = self.store.one("SELECT version,config FROM chart_versions WHERE chart_id=? ORDER BY version DESC LIMIT 1", (chart["id"],))
+                    data = json.loads(chart["data"])
+                    result.append({"id": chart["id"], "source": chart["source"], "columns": data["columns"], "numeric": data["numeric"], "version": latest["version"], "config": json.loads(latest["config"])})
+                return result
+            chart = self.store.one("SELECT * FROM charts WHERE id=? AND task_id=?", (arguments.get("chart_id"), task_id))
+            if not chart:
+                raise ValueError("图表不属于当前任务")
+            body = ChartRevision.model_validate({k: v for k, v in arguments.items() if k != "chart_id"})
+            return {"version": save_revision(self.store, chart, body, role="assistant")}
         if name == "send_to_lead":
             content = arguments.get("content")
             if (

@@ -1,5 +1,7 @@
 import React, { useState as S, useEffect as E, useRef as Ref } from "react";
 import { createRoot } from "react-dom/client";
+import { AutomationPanel, PluginPanel } from "./AutomationPanel";
+import { Charts } from "./Charts";
 import { executionView } from "./execution";
 import "./style.css";
 type Row = Record<string, any>;
@@ -18,7 +20,13 @@ async function api(path: string, method = "GET", body?: unknown) {
   });
   if (!r.ok) {
     const e = await r.json().catch(() => ({ detail: r.statusText }));
-    throw Error(e.detail);
+    throw Error(
+      typeof e.detail === "string"
+        ? e.detail
+        : Array.isArray(e.detail)
+          ? e.detail.map((item: Row) => item.msg).join("；")
+          : "请求失败",
+    );
   }
   return r.status === 204 ? null : r.json();
 }
@@ -67,6 +75,8 @@ function App() {
     [modal, M] = S(""),
     [busy, B] = S(false),
     [notice, N] = S("");
+  const resumeTask = Ref<Row | null>(null);
+  const [connection, Connection] = S("");
   const selection = Ref({ project: "", task: "", tab: "" });
   const execution = executionView(task?.version, task?.runs, task?.checks);
   selection.current = { project: project?.id || "", task: task?.id || "", tab };
@@ -90,7 +100,7 @@ function App() {
     if (selection.current.project === project.id) T(list);
   }
   async function loadItems() {
-    if (!project || tab === "活动") return;
+    if (!project || ["活动", "自动化", "渠道"].includes(tab)) return;
     const selected = { ...selection.current };
     const list = await api(
       tab === "文件" && task?.member_id
@@ -117,10 +127,23 @@ function App() {
       act(async () => {
         await loadProjects();
         EN(await api("/engines"));
+        const position = await api("/resume");
+        if (position && !selection.current.project) {
+          const list = await api("/projects");
+          const savedProject = list.find(
+            (p: Row) => p.id === position.project_id,
+          );
+          if (savedProject && !selection.current.project) {
+            resumeTask.current = await api(`/tasks/${position.task_id}`);
+            PP(savedProject);
+          }
+        }
       });
   }, [user]);
   E(() => {
-    TT(null);
+    const saved = resumeTask.current;
+    resumeTask.current = null;
+    TT(saved && saved.project_id === project?.id ? saved : null);
     EV([]);
     I([]);
     F("");
@@ -140,7 +163,11 @@ function App() {
   }, [tab, task?.id]);
   E(() => {
     EV([]);
+    Connection("");
     if (!task) return;
+    void api(`/resume/${task.id}`, "PUT").catch((e) =>
+      Err("继续工作位置保存失败：" + e.message),
+    );
     let active = true,
       polling = false;
     let cursor = 0;
@@ -155,6 +182,7 @@ function App() {
         ]);
         if (!active) return;
         TT(t);
+        Connection("");
         if (fresh.length) {
           cursor = fresh[fresh.length - 1].id;
           EV((old) => {
@@ -189,16 +217,20 @@ function App() {
           }
         }
       } catch (e) {
-        if (active) Err("连接中断：" + (e as Error).message);
+        if (active) Connection("连接中断，正在重试：" + (e as Error).message);
       } finally {
         polling = false;
       }
     };
     void tick();
     const timer = setInterval(tick, 2500);
+    window.addEventListener("online", tick);
+    window.addEventListener("focus", tick);
     return () => {
       active = false;
       clearInterval(timer);
+      window.removeEventListener("online", tick);
+      window.removeEventListener("focus", tick);
     };
   }, [task?.id]);
   function form(e: React.FormEvent<HTMLFormElement>) {
@@ -352,6 +384,7 @@ function App() {
             )}
           </div>
         </header>
+        {connection && <div role="status">{connection}</div>}
         {error && (
           <div role="alert" className="error">
             {error}
@@ -469,6 +502,14 @@ function App() {
                     </div>
                   )}
                   <div className="messages">
+                    {!task.member_id && (
+                      <Charts
+                        key={task.id}
+                        taskId={task.id}
+                        api={api}
+                        changed={refresh}
+                      />
+                    )}
                     {task.pending_inputs
                       ?.filter((q: Row) =>
                         ["queued", "paused"].includes(q.status),
@@ -799,18 +840,34 @@ function App() {
             </section>
             <section className="inspector">
               <div className="tabs">
-                {["文件", "活动", "记忆", "扩展", "协作"].map((t) => (
-                  <button
-                    className={tab === t ? "active" : ""}
-                    onClick={() => Tab(t)}
-                    key={t}
-                  >
-                    {t}
-                  </button>
-                ))}
+                {["文件", "活动", "记忆", "扩展", "协作", "自动化", "渠道"].map(
+                  (t) => (
+                    <button
+                      className={tab === t ? "active" : ""}
+                      onClick={() => Tab(t)}
+                      key={t}
+                    >
+                      {t}
+                    </button>
+                  ),
+                )}
               </div>
               <div className="panelbody">
-                {tab === "活动" ? (
+                {tab === "自动化" || tab === "渠道" ? (
+                  <AutomationPanel
+                    key={project.id + tab}
+                    projectId={project.id}
+                    taskId={task?.id}
+                    api={api}
+                    mode={tab === "自动化" ? "routines" : "connections"}
+                    openTask={async (id) => {
+                      await act(async () => {
+                        TT(await api(`/tasks/${id}`));
+                        await loadTasks();
+                      });
+                    }}
+                  />
+                ) : tab === "活动" ? (
                   <>
                     {events.map((e) => (
                       <article className="event" key={e.id}>
@@ -832,6 +889,13 @@ function App() {
                   </>
                 ) : (
                   <>
+                    {tab === "扩展" && (
+                      <PluginPanel
+                        projectId={project.id}
+                        api={api}
+                        changed={loadItems}
+                      />
+                    )}
                     <div className="paneltitle">
                       <b>{tab === "文件" ? "项目文件" : tab}</b>
                       {tab === "文件" ? (

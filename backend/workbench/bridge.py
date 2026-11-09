@@ -20,7 +20,15 @@ def spec(name, description, properties, required=()):
 
 
 STRING = {"type": "string"}
+CHART_TOOLS = {"chart_list", "chart_revise"}
 TOOLS = [
+    spec("chart_list", "List current task charts, source files, columns and latest config before changing a chart.", {}),
+    spec("chart_revise", "Save a new immutable chart version for the current task. Read chart_list first; stale base_version is rejected.", {
+        "chart_id": STRING, "base_version": {"type": "integer", "minimum": 1},
+        "title": {"type": "string", "minLength": 1, "maxLength": 160},
+        "kind": {"type": "string", "enum": ["bar", "line"]},
+        "x": STRING, "y": STRING, "filter_column": STRING, "filter_value": STRING,
+    }, ["chart_id", "base_version", "title", "kind", "x", "y"]),
     spec(
         "send_to_lead",
         "Send a progress report/question to the parent; not a user instruction.",
@@ -110,7 +118,7 @@ def forward(name, arguments):
 
 def available_tools(role):
     if role == "solo":
-        return [tool for tool in TOOLS if tool["name"] in MEMORY_TOOLS]
+        return [tool for tool in TOOLS if tool["name"] in MEMORY_TOOLS | CHART_TOOLS]
     names = MEMORY_TOOLS | {"send_to_lead"}
     return (
         [tool for tool in TOOLS if tool["name"] in names]

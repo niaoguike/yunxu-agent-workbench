@@ -586,3 +586,36 @@ def test_permission_mode_cannot_change_while_a_native_turn_is_active(setup):
     client.post(base + "/stop")
     wait_task(client, item["id"], {"interrupted"})
     assert client.patch(base, json={"permission_mode": "ask"}).status_code == 200
+
+
+def test_cross_device_resume_survives_restart(tmp_path):
+    settings = Settings(data_dir=tmp_path)
+    credentials = {"email": "resume@example.com", "password": "safe-password-123"}
+    with TestClient(create_app(settings, runtime=EngineFixture())) as first:
+        assert first.post("/api/auth/register", json=credentials).status_code == 201
+        assert first.get("/api/resume").json() is None
+        project = first.post("/api/projects", json={"name": "Continue"}).json()
+        item = task(first, project)
+        root = tmp_path / "workspaces" / project["id"] / "main"
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "notes.txt").write_text("persistent file", encoding="utf-8")
+        assert first.put(f"/api/resume/{item['id']}").status_code == 200
+        cookie = first.cookies.get("workbench_session")
+    with TestClient(create_app(settings, runtime=EngineFixture())) as second:
+        assert second.get("/api/resume").status_code == 401
+        assert second.post("/api/auth/login", json=credentials).status_code == 200
+        assert second.get("/api/resume").json() == {
+            "task_id": item["id"], "project_id": project["id"]
+        }
+        assert second.get(f"/api/tasks/{item['id']}").status_code == 200
+        assert (root / "notes.txt").read_text(encoding="utf-8") == "persistent file"
+        assert second.get(f"/api/projects/{project['id']}/files").status_code == 200
+        second.cookies.set("workbench_session", cookie)
+        assert second.get("/api/auth/me").status_code == 200
+        second.cookies.clear()
+        second.post("/api/auth/register", json={**credentials, "email": "other@example.com"})
+        assert second.get("/api/resume").json() is None
+        assert second.put(f"/api/resume/{item['id']}").status_code == 404
+        second.post("/api/auth/login", json=credentials)
+        second.delete(f"/api/projects/{project['id']}")
+        assert second.get("/api/resume").json() is None

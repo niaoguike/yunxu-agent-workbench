@@ -11,6 +11,8 @@ def test_worker_does_not_inherit_leader_management_tools():
     assert {tool["name"] for tool in available_tools("solo")} == {
         "memory_search",
         "memory_save",
+        "chart_list",
+        "chart_revise",
     }
     worker = {tool["name"] for tool in available_tools("worker")}
     leader = {tool["name"] for tool in available_tools("leader")}

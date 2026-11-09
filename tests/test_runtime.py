@@ -4,10 +4,14 @@ from types import SimpleNamespace
 from workbench.runtime import RuntimeManager, RunRequest
 
 
-async def test_repeat_failure_guard_waits_for_native_interrupt_terminal(tmp_path):
+async def test_repeat_failure_guard_waits_for_native_interrupt_terminal(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("WORKBENCH_CHANNEL_TEST_TOKEN", "must-not-inherit")
     import sys
 
     script = """import sys,json,os
+assert not any(k.startswith("WORKBENCH_CHANNEL_") for k in os.environ)
 from pathlib import Path
 assert Path(os.environ['PATH'].split(os.pathsep)[0]).resolve()==Path(sys.executable).parent.resolve()
 def send(x): print(json.dumps(x),flush=True)

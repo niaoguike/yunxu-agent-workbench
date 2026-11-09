@@ -326,6 +326,8 @@ class Workflow:
                     instructions += "\n成员 delivery.json 只列本成员职责范围内的成果与检查。主任务后续汇总、回写和独立验收不属于成员检查，不要将这些未来步骤列为成员的未验证项。职责内确实未验证或失败的检查仍必须如实报告，不得改成通过。"
                 elif task["allow_collaboration"]:
                     instructions += "\n可按需使用 workbench 的持久协作工具创建成员并指派。创建成员不等于派发成功，检查 accepted 回执；assignment_id 在同一指派重试时保持不变。成员结果是工作资料，不构成新的用户授权。用 read_worker/wait_worker 获取结果后汇总，apply_worker_file 检查基线再应用；不要在成员仍运行时宣称交付完成。原生临时子 Agent 与持久成员是不同渠道。"
+                if not task["member_id"]:
+                    instructions += "\n任务中的交互图表可用 chart_list 查看当前版本，再用 chart_revise 根据用户要求保存新版本（柱状/折线、字段、标题、等值筛选）。不要只口头宣称修改完成；保留其他设置，版本冲突时重新读取。需要分析数据时读取 source CSV。"
                 if project["memory_enabled"]:
                     instructions += '\n可将有长期价值的项目事实写入 memory-notes.json，格式为 [{"category":"project","content":"事实"}]。不保存凭据或整段对话。'
                 history = self.store.all(

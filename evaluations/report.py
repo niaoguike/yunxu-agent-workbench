@@ -118,6 +118,19 @@ def live_summary(rows):
             if token_values
             else None,
         }
+    for mode, values in groups.items():
+        judged = [r["judge"] for r in values
+                  if r.get("judge") and r["judge"]["status"] == "completed"]
+        calls = [c for j in judged for c in j["calls"]]
+        result[mode]["judge"] = {
+            "completed_runs": len(judged),
+            "requested_runs": sum(r.get("judge") is not None for r in values),
+            "tool_accuracy": sum(c["correct"] for c in calls)/len(calls) if calls else None,
+            "evaluated_calls": len(calls),
+            "total_calls": sum(r["judge"]["total_calls"] for r in values if r.get("judge")),
+            "quality_mean": {k: statistics.mean(j["quality"][k] for j in judged) if judged else None
+                             for k in ("correctness", "completeness", "grounding", "clarity")},
+        }
     return result
 
 
@@ -306,6 +319,10 @@ def main():
         lines.append(
             f"| {mode} | {row['passed']} / {row['runs']} | {row['median_seconds_all_runs']:.2f} | {row['median_total_tokens_observed']} |"
         )
+    lines += ["", "## 独立模型评分", "",
+              "工具准确率为模型对工具选择与参数的判断，非执行成功率；回复质量为1–5分。缺失评分不记为0；Judge不改变独立验收结果。", ""]
+    for mode, row in summary["live"].items():
+        lines.append(f"- {mode}: {json.dumps(row['judge'], ensure_ascii=False)}")
     for experiment in diagnostics:
         diagnostic_meta = experiment["metadata"]
         lines += [

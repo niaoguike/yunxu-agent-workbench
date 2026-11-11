@@ -25,6 +25,7 @@ class RunRequest:
     bridge_role: str = "leader"
     adaptive_loop_review: bool = False
     review_only: bool = False
+    review_schema: dict | None = None
 
 
 @dataclass

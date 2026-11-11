@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from .permissions import codex_permissions, claude_needs_human
 from .loop_guard import ToolLoopGuard
-from .loop_review import LoopReviewMonitor, SCHEMA
+from .loop_review import LoopReviewMonitor, SCHEMA, redact
 
 
 def emit(kind, **data):
@@ -261,7 +261,7 @@ async def main():
                 options.hooks = {}
                 options.permission_mode = "dontAsk"
                 options.max_turns = 1
-                options.output_format = {"type": "json_schema", "schema": SCHEMA}
+                options.output_format = {"type": "json_schema", "schema": request.get("review_schema") or SCHEMA}
             async with ClaudeSDKClient(options=options) as client:
 
                 async def interrupt():
@@ -429,6 +429,11 @@ async def main():
                                 "tool_activity",
                                 item_id=item.get("id"),
                                 tool=item.get("type"),
+                                name=item.get("tool", item.get("type")),
+                                arguments=json.loads(redact(json.dumps(item.get("command", item.get("arguments", item.get("changes"))), default=str))),
+                                result=json.loads(redact(json.dumps(item.get("aggregatedOutput", item.get("result")), default=str))),
+                                error=item.get("error"),
+                                exit_code=item.get("exitCode"),
                                 status=item.get(
                                     "status",
                                     "started"
@@ -617,7 +622,7 @@ async def main():
                             "networkAccess": False,
                         },
                         **(
-                            {"outputSchema": SCHEMA}
+                            {"outputSchema": request.get("review_schema") or SCHEMA}
                             if request.get("review_only")
                             else {}
                         ),

@@ -1,6 +1,7 @@
 """Run: python -m evaluations.live --repeats 2. Uses real credentials and model calls."""
 
 import argparse
+import asyncio
 import hashlib
 import json
 import platform
@@ -14,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from workbench.api import create_app
 from workbench.config import Settings
+from .judge import judge
 from .cases import CASES, VERSION, validate
 
 
@@ -64,7 +66,7 @@ def metrics(events):
     }
 
 
-def run_case(client, settings, case_id, mode, repetition, timeout, output):
+def run_case(client, settings, case_id, mode, repetition, timeout, output, quality_judge=False):
     case = CASES[case_id]
     project = client.post(
         "/api/projects", json={"name": f"eval-{case_id}-{mode}-{repetition}"}
@@ -144,16 +146,28 @@ def run_case(client, settings, case_id, mode, repetition, timeout, output):
             "passed": policy_pass(assignments, mode, stats["native_subagent_events"]),
         }
     )
+    grading = None
+    if quality_judge:
+        messages = [e["data"].get("text", "") for tid, e in events
+                    if tid == task["id"] and e["kind"] == "message"]
+        if not messages:
+            messages = [e["data"].get("text", "") for tid, e in events
+                        if tid == task["id"] and e["kind"] == "delta"]
+        artifacts = {name: (root / name).read_text(encoding="utf-8", errors="replace")
+                     for name in case["artifacts"] if (root / name).is_file()}
+        grading = asyncio.run(judge(settings, output / "judge-workspaces" / f"{case_id}-{mode}-{repetition}",
+                                   prompt, events, "\n".join(messages), checks, artifacts))
     trace = output / f"{case_id}-{mode}-{repetition}.json"
     trace.write_text(
         json.dumps(
-            {"tasks": group, "events": events, "checks": checks},
+            {"tasks": group, "events": events, "checks": checks, "judge": grading},
             ensure_ascii=False,
             indent=2,
         ),
         encoding="utf-8",
     )
     row = {
+        "judge": grading,
         "case": case_id,
         "mode": mode,
         "repetition": repetition,
@@ -202,6 +216,7 @@ def run_case(client, settings, case_id, mode, repetition, timeout, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--judge", action="store_true", help="Independently grade tool intent and reply quality")
     parser.add_argument("--repeats", type=int, default=2)
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--cases", nargs="+", choices=list(CASES), default=list(CASES))
@@ -279,6 +294,7 @@ def main():
                             repetition,
                             args.timeout,
                             output,
+                            args.judge,
                         )
                     )
     (output / "complete.json").write_text(

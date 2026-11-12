@@ -262,3 +262,35 @@ def test_busy_member_queues_idempotently_and_stop_pauses_queue(setup):
     client.post(f"/api/projects/{project['id']}/stop")
     result = wait_task(client, first["id"], {"interrupted"})
     assert result["pending_inputs"][0]["status"] == "paused"
+
+
+def test_memory_index_and_scoped_chunk_read(setup):
+    import asyncio
+    import pytest
+    client, project, _ = setup
+    other = client.post("/api/projects", json={"name": "Private"}).json()
+    content = "summary " + "x" * 3000
+    memory = client.post(f"/api/projects/{project['id']}/memories",
+                         json={"category": "project", "content": content}).json()
+    foreign = client.post(f"/api/projects/{other['id']}/memories",
+                          json={"category": "project", "content": "private"}).json()
+    task = client.post(f"/api/projects/{project['id']}/tasks", json={"title": "Read"}).json()
+    client.app.state.store.execute("UPDATE tasks SET status='running' WHERE id=?", (task["id"],))
+    def call(name, args):
+        return asyncio.run(client.app.state.workflow.collaboration.tool(task["id"], name, args))
+    with pytest.raises(ValueError):
+        call("memory_read", {"id": memory["id"]})
+    client.patch(f"/api/projects/{project['id']}", json={"memory_enabled": True})
+    index = call("memory_search", {"query": "summary"})
+    assert len(index[0]["summary"]) == 80
+    assert "content" not in index[0]
+    first = call("memory_read", {"id": memory["id"]})
+    assert first["content"] == content[:2000]
+    assert first["next_offset"] == 2000
+    last = call("memory_read", {"id": memory["id"], "offset": 2000})
+    assert last["content"] == content[2000:]
+    assert last["next_offset"] is None
+    for args in ({"id": foreign["id"]}, {"id": memory["id"], "limit": 2001},
+                 {"id": memory["id"], "offset": -1}):
+        with pytest.raises(ValueError):
+            call("memory_read", args)

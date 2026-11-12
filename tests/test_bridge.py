@@ -10,13 +10,14 @@ from workbench.runtime import RunRequest, RuntimeManager
 def test_worker_does_not_inherit_leader_management_tools():
     assert {tool["name"] for tool in available_tools("solo")} == {
         "memory_search",
+        "memory_read",
         "memory_save",
         "chart_list",
         "chart_revise",
     }
     worker = {tool["name"] for tool in available_tools("worker")}
     leader = {tool["name"] for tool in available_tools("leader")}
-    assert worker == {"memory_search", "memory_save", "send_to_lead"}
+    assert worker == {"memory_search", "memory_read", "memory_save", "send_to_lead"}
     assert {
         "create_worker",
         "send_to_worker",

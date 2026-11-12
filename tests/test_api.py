@@ -251,7 +251,7 @@ def test_memory_opt_in_and_skill_snapshot(setup):
     client, project, engine = setup
     client.post(
         f"/api/projects/{project['id']}/memories",
-        json={"category": "project", "content": "Use UTC timestamps"},
+        json={"category": "project", "content": "Use UTC timestamps" + "x" * 100 + "BODY_ONLY"},
     )
     skill = client.post(
         f"/api/projects/{project['id']}/extensions",
@@ -267,6 +267,8 @@ def test_memory_opt_in_and_skill_snapshot(setup):
     client.post(f"/api/tasks/{item['id']}/messages", json={"content": "second"})
     wait_task(client, item["id"], {"waiting_confirmation"})
     assert "Use UTC timestamps" in engine.requests[-1].instructions
+    assert "BODY_ONLY" not in engine.requests[-1].instructions
+    assert "memory_read" in engine.requests[-1].instructions
     assert "Cite sources" not in engine.requests[-1].instructions
 
 

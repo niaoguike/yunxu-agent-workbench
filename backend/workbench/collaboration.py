@@ -326,7 +326,7 @@ class Collaboration:
                 },
             )
             return {"delivered": True, "parent_task_id": task["parent_task_id"]}
-        if name in {"memory_search", "memory_save"}:
+        if name in {"memory_search", "memory_read", "memory_save"}:
             project = self.store.one(
                 "SELECT * FROM projects WHERE id=? AND deleted_at IS NULL",
                 (task["project_id"],),
@@ -336,9 +336,24 @@ class Collaboration:
             if name == "memory_search":
                 q = arguments.get("query", "")
                 return self.store.all(
-                    "SELECT id,category,content,revision FROM memories WHERE project_id=? AND content LIKE ? LIMIT 20",
+                    "SELECT id,category,substr(content,1,80) AS summary,revision FROM memories WHERE project_id=? AND content LIKE ? ORDER BY created_at DESC,id LIMIT 20",
                     (task["project_id"], "%" + str(q)[:500] + "%"),
                 )
+            if name == "memory_read":
+                offset = arguments.get("offset", 0)
+                limit = arguments.get("limit", 2000)
+                if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 2000:
+                    raise ValueError("记忆读取范围不合法")
+                item = self.store.one(
+                    "SELECT id,category,content,revision FROM memories WHERE project_id=? AND id=?",
+                    (task["project_id"], arguments.get("id")),
+                )
+                if not item:
+                    raise ValueError("记忆不存在")
+                total = len(item["content"])
+                return {**item, "content": item["content"][offset:offset + limit],
+                        "offset": offset, "total_chars": total,
+                        "next_offset": offset + limit if offset + limit < total else None}
             content = arguments.get("content")
             category = arguments.get("category", "project")
             if (

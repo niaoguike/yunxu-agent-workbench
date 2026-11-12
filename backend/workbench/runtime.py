@@ -26,6 +26,8 @@ class RunRequest:
     adaptive_loop_review: bool = False
     review_only: bool = False
     review_schema: dict | None = None
+    compaction_threshold_pct: int = 90
+    replay_prompt: str | None = None
 
 
 @dataclass

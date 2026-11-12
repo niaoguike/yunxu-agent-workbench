@@ -27,6 +27,7 @@ from .files import digest, import_zip, inventory, safe_path
 from .runtime import RuntimeManager
 from .store import Store, now, uid
 from .workflow import STAGES, Workflow
+from .orchestrator import Orchestrator
 
 
 class Credentials(BaseModel):
@@ -140,14 +141,19 @@ def create_app(settings: Settings | None = None, runtime=None):
     runtime = runtime or RuntimeManager(settings)
     workflow = Workflow(store, settings, runtime)
     routines = Routines(store, workflow, runtime)
+    orchestrator = Orchestrator(workflow)
 
     @asynccontextmanager
     async def lifespan(app):
         workflow.recover()
         routines.start()
+        orchestrator.start()
+        workflow.native_memory.start()
         try:
             yield
         finally:
+            await workflow.native_memory.close()
+            await orchestrator.close()
             await routines.close()
             await workflow.close()
         store.connection.close()
@@ -1434,6 +1440,86 @@ def create_app(settings: Settings | None = None, runtime=None):
         store.execute("DELETE FROM extensions WHERE id=?", (extension_id,))
         await stop_project(item["project_id"])
         return {"ok": True}
+
+    @app.get("/api/projects/{project_id}/orchestrations")
+    async def orchestration_list(project_id: str, owner=Depends(user)):
+        project_owned(project_id, owner)
+        rows = store.all("SELECT * FROM orchestrations WHERE project_id=? ORDER BY created_at DESC", (project_id,))
+        for row in rows:
+            row["data"] = json.loads(row["data"])
+        return rows
+
+    @app.post("/api/projects/{project_id}/orchestrations", status_code=201)
+    async def orchestration_create(project_id: str, body: Content, owner=Depends(user)):
+        project_owned(project_id, owner)
+        try:
+            return {"id": orchestrator.create(project_id, body.content, "codex")}
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.post("/api/orchestrations/{oid}/{action}")
+    async def orchestration_control(oid: str, action: str, owner=Depends(user)):
+        row = child_owned("orchestrations", oid, owner)
+        data = json.loads(row["data"])
+        if action == "stop":
+            orchestrator.save(row, "stopped", data)
+            await runtime.stop("plan-"+oid)
+            await workflow.stop(row["task_id"])
+            store.execute("UPDATE tasks SET status='interrupted' WHERE id=? AND status='running'", (row["task_id"],))
+        elif action == "resume" and row["state"] in {"paused", "conflict"}:
+            store.execute("UPDATE tasks SET status='running' WHERE id=?", (row["task_id"],))
+            for node in data['nodes']:
+                if node['status'] == 'running':
+                    task = store.one("SELECT status FROM tasks WHERE id=?", (node['task_id'],))
+                    if task['status'] in {'paused','interrupted','failed'}:
+                        workflow.enqueue(node['task_id'])
+            orchestrator.save(row, "executing" if data['nodes'] else "planning", data)
+        else:
+            raise HTTPException(409, "当前状态不支持此操作")
+        return {"ok": True}
+
+    @app.get("/api/projects/{project_id}/native-sessions")
+    async def native_sessions(project_id: str, owner=Depends(user)):
+        project_owned(project_id, owner)
+        return store.all("SELECT id,title,engine,session_id,member_id,parent_task_id,status FROM tasks WHERE project_id=? ORDER BY created_at DESC", (project_id,))
+
+    @app.get("/api/projects/{project_id}/memory-sync")
+    async def memory_sync_status(project_id: str, owner=Depends(user)):
+        project = project_owned(project_id, owner)
+        return {"enabled": bool(project['memory_enabled']), "interval_seconds": 2,
+                "codex_account_enabled": settings.runner == "trusted-local",
+                "codex_account_scope": "exact_workspace_rollout_summaries",
+                "error": workflow.native_memory.errors.get(project_id),
+                "sources": store.all("SELECT source,engine,digest,updated_at FROM native_memory_files WHERE project_id=? ORDER BY source", (project_id,))}
+
+    @app.post("/api/projects/{project_id}/memory-import/{engine}")
+    async def memory_import(project_id: str, engine: str, file: UploadFile = File(...), owner=Depends(user)):
+        project = project_owned(project_id, owner)
+        if engine not in {"claude", "codex"}:
+            raise HTTPException(400, "未知执行器")
+        if not project['memory_enabled']:
+            raise HTTPException(409, "请先开启项目记忆")
+        raw = await file.read(256001)
+        if len(raw) > 256000:
+            raise HTTPException(400, "记忆文件超过256KB")
+        try:
+            content = raw.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            raise HTTPException(400, "记忆文件必须为UTF-8文本")
+        imported = []
+        for start in range(0, len(content), 4000):
+            chunk = content[start:start+4000].strip()
+            if not chunk:
+                continue
+            previous = store.one("SELECT id FROM memories WHERE project_id=? AND content=?", (project_id, chunk))
+            mid = previous['id'] if previous else uid()
+            if not previous:
+                store.execute("INSERT INTO memories(id,project_id,category,content,created_at) VALUES(?,?,'reference',?,?)", (mid,project_id,chunk,now()))
+            imported.append(mid)
+        store.execute("CREATE TABLE IF NOT EXISTS memory_sources(memory_id TEXT,engine TEXT,filename TEXT,digest TEXT,PRIMARY KEY(memory_id,engine,digest))")
+        for mid in imported:
+            store.execute("INSERT OR IGNORE INTO memory_sources VALUES(?,?,?,?)", (mid,engine,(file.filename or '')[:240],hashlib.sha256(raw).hexdigest()))
+        return {"memory_ids": imported, "engine": engine}
 
     @app.get("/api/projects/{project_id}/members")
     async def members(project_id: str, owner=Depends(user)):

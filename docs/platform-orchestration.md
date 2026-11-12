@@ -1,0 +1,37 @@
+# 平台两级编排
+
+在项目右侧选择“编排”，填写目标后提交。平台创建独立任务记录，规划器仅分析目标并输出有依赖的任务计划；平台验证计划，再派发到 Claude Code / Codex 的持久执行器会话。执行器仍可使用自己的原生 worker。
+
+平台根据执行器可用性、项目技能、项目约定和检索记忆生成分配计划，保留分配理由。每个工作项最多执行三次，失败时保留错误并切换执行器；整合验收最多追加两次修复。各执行器的现有事件、原生会话、工具授权和检查记录继续写入平台数据库。
+
+平台等待执行终态，依赖项整合完成后才派发下游工作。应用文件前检查初始摘要，支持文件新增、修改和删除。检测到冲突后暂停；查看各成员修改区并解决主工作区冲突后，点击“已检查工作区，恢复”。平台不会覆盖已变化的文件。
+
+整合完成后，平台启动单独的验收执行，由执行器运行项目实际测试、修复问题并生成交付清单。平台验证清单、成果文件和检查状态。执行器报告的测试通过仍标记为 engine_reported，文件存在性检查标记为 platform；这不等同于独立证明任意测试命令可信。
+
+服务重启后，结果不明的原生执行会暂停；恢复前需检查工作区，防止重复执行外部副作用。停止操作终止当前任务及协作者，不自动继续派发。
+
+## 共享记忆
+
+先在项目设置开启记忆。编排页支持上传 Claude Code、Codex 的 UTF-8 记忆文本（例如 MEMORY.md 或其引用的记忆正文），单文件最多256KB。平台保留来源执行器、文件名与摘要，按内容去重，分块存入同一项目记忆库。平台不会扫描宿主机账户目录。
+
+规划与执行前，平台以目标及近期用户消息检索该项目记忆，最多注入8条、12000字符；单条正文最多4000字符。记忆作为历史资料注入，当前需求和项目约定优先。执行快照记录检索正文与版本。两个执行器的 memory_save 和 memory-notes.json 也进入同一个项目记忆库。
+
+## API
+
+- GET/POST /api/projects/{project_id}/orchestrations：列表、提交目标（content）。
+- POST /api/orchestrations/{id}/stop 或 resume：停止、检查后恢复。
+- GET /api/projects/{project_id}/native-sessions：项目任务及执行器会话状态。
+- POST /api/projects/{project_id}/memory-import/{claude|codex}：上传 file。
+
+所有接口沿用项目所有权验证。平台任务不拥有用户身份或额外授权，工具操作继续遵循已有权限策略。
+
+
+## 原生记忆自动同步
+
+开启项目记忆后，后台每2秒扫描平台项目内 `.native/claude-memory`、`.native/codex/memories` 与 `.native/codex/memories_v2`。执行前后也会同步。Claude执行器通过 autoMemoryDirectory 设置写入项目内目录。来源摘要、执行器与更新时间可在编排页查看。
+
+文件新增、修改和删除会更新共享记忆库；相同内容去重，用户在平台手动修订的记忆不会因源删除被移除。同步忽略链接、隐藏子目录、非文本文件及大于256KB文件。
+
+用户已批准账户级 Codex 原生记忆只读同步。trusted-local 执行模式自动读取 CODEX_HOME（未设置时为 ~/.codex）下 memories/rollout_summaries 与 memories_v2/rollout_summaries。仅导入带有单一 cwd 元数据且精确匹配当前项目主工作区或成员工作区的摘要。跳过全局混合索引、归属不明和其他项目内容；不读取认证文件，不复制账户配置，不修改 Codex 原生目录。变更、删除与去重沿用项目目录同步机制。Docker 模式不扫描宿主机账户目录。
+
+路径设置依据：[Claude Code memory](https://code.claude.com/docs/en/memory)；Codex存储说明：[OpenAI Memories](https://learn.chatgpt.com/docs/customization/memories)。

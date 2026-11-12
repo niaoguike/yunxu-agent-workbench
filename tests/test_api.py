@@ -247,6 +247,75 @@ def test_stop_cancels_native_run_and_does_not_deliver(setup):
     assert result["pending_inputs"][0]["status"] == "paused"
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_native_compaction_digest_and_rebuilt_history(setup, enabled):
+    client, project, engine = setup
+    client.patch(f"/api/projects/{project['id']}", json={"memory_enabled": enabled})
+    original = engine.execute
+
+    async def compacting(request):
+        async for event in original(request):
+            yield event
+            if event.kind == "session":
+                yield RuntimeEvent("context_compacted", {"summary": "Done: report; pending: publish."})
+
+    engine.execute = compacting
+    item = task(client, project)
+    client.post(f"/api/tasks/{item['id']}/messages", json={"content": "Initial goal"})
+    wait_task(client, item["id"], {"waiting_confirmation"})
+    memories = client.get(f"/api/projects/{project['id']}/memories").json()
+    assert len(memories) == int(enabled)
+    if enabled:
+        assert "Done: report" in memories[0]["content"]
+    client.post(f"/api/tasks/{item['id']}/messages", json={"content": "New constraint"})
+    wait_task(client, item["id"], {"waiting_confirmation"})
+    assert "New constraint" in engine.requests[-1].prompt
+    # New requirements deliberately reset the native session in the API.
+    assert engine.requests[-1].session_id is None
+    assert "Initial goal" in engine.requests[-1].prompt
+    assert "Initial goal" in engine.requests[-1].replay_prompt
+
+
+def test_workflow_native_resume_sends_only_new_input(setup):
+    from workbench.store import uid, now
+
+    client, project, engine = setup
+    item = task(client, project)
+    client.post(f"/api/tasks/{item['id']}/messages", json={"content": "Initial goal"})
+    first = wait_task(client, item["id"], {"waiting_confirmation"})
+    # Exercise an outer-workflow continuation without the API's intentional
+    # requirement-change/session-reset behavior.
+    client.app.state.store.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uid(), item["id"], "user", "Continue existing work", now()))
+    client.portal.call(client.app.state.workflow.enqueue, item["id"])
+    wait_task(client, item["id"], {"waiting_confirmation"})
+    assert engine.requests[-1].session_id == first["session_id"]
+    assert "Initial goal" not in engine.requests[-1].prompt
+    assert "Continue existing work" in engine.requests[-1].prompt
+    assert "Initial goal" in engine.requests[-1].replay_prompt
+
+
+def test_failed_compaction_preserves_result_and_rebuilds_next_session(setup):
+    client, project, engine = setup
+    original = engine.execute
+
+    async def failing(request):
+        async for event in original(request):
+            if event.kind == "completed":
+                yield RuntimeEvent("context_compaction_failed", {"needs_rollover": True})
+            yield event
+
+    engine.execute = failing
+    item = task(client, project)
+    client.post(f"/api/tasks/{item['id']}/messages", json={"content": "Initial goal"})
+    result = wait_task(client, item["id"], {"waiting_confirmation"})
+    assert result["session_id"] is None
+    assert result["runs"][-1]["status"] == "completed"
+    client.post(f"/api/tasks/{item['id']}/messages", json={"content": "Continue"})
+    wait_task(client, item["id"], {"waiting_confirmation"})
+    assert engine.requests[-1].session_id is None
+    assert "Initial goal" in engine.requests[-1].prompt
+
+
 def test_memory_opt_in_and_skill_snapshot(setup):
     client, project, engine = setup
     client.post(

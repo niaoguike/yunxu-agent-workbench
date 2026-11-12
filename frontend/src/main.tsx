@@ -1,6 +1,7 @@
 import React, { useState as S, useEffect as E, useRef as Ref } from "react";
 import { createRoot } from "react-dom/client";
 import { AutomationPanel, PluginPanel } from "./AutomationPanel";
+import { OrchestrationPanel } from "./OrchestrationPanel";
 import { Charts } from "./Charts";
 import { executionView } from "./execution";
 import "./style.css";
@@ -100,7 +101,7 @@ function App() {
     if (selection.current.project === project.id) T(list);
   }
   async function loadItems() {
-    if (!project || ["活动", "自动化", "渠道"].includes(tab)) return;
+    if (!project || ["活动", "自动化", "渠道", "编排"].includes(tab)) return;
     const selected = { ...selection.current };
     const list = await api(
       tab === "文件" && task?.member_id
@@ -840,7 +841,7 @@ function App() {
             </section>
             <section className="inspector">
               <div className="tabs">
-                {["文件", "活动", "记忆", "扩展", "协作", "自动化", "渠道"].map(
+                {["文件", "活动", "记忆", "扩展", "协作", "编排", "自动化", "渠道"].map(
                   (t) => (
                     <button
                       className={tab === t ? "active" : ""}
@@ -853,7 +854,7 @@ function App() {
                 )}
               </div>
               <div className="panelbody">
-                {tab === "自动化" || tab === "渠道" ? (
+                {tab === "编排" ? <OrchestrationPanel key={project.id} projectId={project.id} api={api} /> : tab === "自动化" || tab === "渠道" ? (
                   <AutomationPanel
                     key={project.id + tab}
                     projectId={project.id}

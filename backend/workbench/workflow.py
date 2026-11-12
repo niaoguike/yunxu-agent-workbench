@@ -9,6 +9,7 @@ from .runtime import RunRequest
 from .store import now, uid
 from .collaboration import Collaboration
 from .context_signals import ContextSignals
+from .history_context import history_context
 from .loop_review import review_prompt, redact
 
 
@@ -339,9 +340,7 @@ class Workflow:
                     "SELECT role,content FROM messages WHERE task_id=? ORDER BY created_at",
                     (task_id,),
                 )
-                prompt = "\n\n".join(m["role"] + ": " + m["content"] for m in history)[
-                    -100000:
-                ]
+                prompt = history_context(history)
                 if task["mode"] == "development":
                     prompt += f"\n\n当前只执行阶段 {task['stage'] + 1}：{STAGES[task['stage']][0]}。{STAGES[task['stage']][1]} 不要越过本阶段。"
                 if task["mode"] == "free" or task["stage"] == 6:

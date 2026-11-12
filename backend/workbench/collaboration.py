@@ -335,10 +335,11 @@ class Collaboration:
                 raise ValueError("项目自主记忆未启用")
             if name == "memory_search":
                 q = arguments.get("query", "")
-                return self.store.all(
-                    "SELECT id,category,substr(content,1,80) AS summary,revision FROM memories WHERE project_id=? AND state='active' AND scope='project' AND content LIKE ? ORDER BY created_at DESC,id LIMIT 20",
-                    (task["project_id"], "%" + str(q)[:500] + "%"),
-                )
+                from .shared_memory import search
+                return [
+                    {"id": row["id"], "category": row["category"], "summary": row["content"][:80], "revision": row["revision"]}
+                    for row in search(self.store, task["project_id"], str(q))
+                ]
             if name == "memory_read":
                 offset = arguments.get("offset", 0)
                 limit = arguments.get("limit", 2000)

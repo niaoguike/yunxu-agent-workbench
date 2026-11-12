@@ -13,6 +13,7 @@ from pathlib import Path
 from .permissions import codex_permissions, claude_needs_human
 from .loop_guard import ToolLoopGuard
 from .loop_review import LoopReviewMonitor, SCHEMA, redact
+from .native_compaction import NativeCompaction
 
 
 def emit(kind, **data):
@@ -37,6 +38,7 @@ async def main():
     threading.Thread(target=read_stdin, daemon=True).start()
     config = json.loads(await lines.get())
     request = config["request"]
+    compaction = NativeCompaction(request.get("compaction_threshold_pct", 90))
     permission_mode = request.get("permission_mode", "ask")
     if permission_mode not in {"auto", "ask"}:
         emit("completed", status="failed", error="Unknown permission mode")
@@ -270,10 +272,17 @@ async def main():
 
                 stopper = asyncio.create_task(interrupt())
                 try:
+                    terminal = None
                     await client.query(request["prompt"])
                     async for msg in client.receive_response():
                         if isinstance(msg, SystemMessage) and msg.subtype == "init":
                             emit("session", session_id=msg.data["session_id"])
+                        elif isinstance(msg, SystemMessage) and msg.subtype == "compact_boundary":
+                            compaction.boundary()
+                            emit("context_compacted", **{
+                                key: value for key, value in msg.data.items()
+                                if key in {"summary", "compact_metadata"}
+                            })
                         elif isinstance(msg, AssistantMessage):
                             for block in msg.content:
                                 if isinstance(block, TextBlock):
@@ -289,8 +298,7 @@ async def main():
                                     ),
                                 )
                             emit("session", session_id=msg.session_id)
-                            emit(
-                                "completed",
+                            terminal = dict(
                                 status="failed"
                                 if guard_error
                                 else "interrupted"
@@ -298,6 +306,38 @@ async def main():
                                 else ("failed" if msg.is_error else "completed"),
                                 error=guard_error,
                             )
+                    if terminal and terminal["status"] == "completed" and not request.get("review_only") and not stop.is_set():
+                        try:
+                            async with asyncio.timeout(15):
+                                usage = await client.get_context_usage()
+                            compaction.usage(usage.get("totalTokens"), usage.get("rawMaxTokens"))
+                            emit("context_usage", context_tokens=usage.get("totalTokens"), context_window=usage.get("rawMaxTokens"))
+                            if compaction.should_compact():
+                                emit("context_compaction_started", threshold=compaction.threshold, source="host")
+                                async with asyncio.timeout(120):
+                                    await client.query("/compact")
+                                    boundary = False
+                                    async for compact_msg in client.receive_response():
+                                        if isinstance(compact_msg, SystemMessage) and compact_msg.subtype == "compact_boundary":
+                                            boundary = True
+                                            compaction.boundary()
+                                            emit("context_compacted", **{
+                                                key: value for key, value in compact_msg.data.items()
+                                                if key in {"summary", "compact_metadata"}
+                                            })
+                                        elif isinstance(compact_msg, ResultMessage) and compact_msg.is_error:
+                                            raise RuntimeError("Native compact returned an error")
+                                    if not boundary:
+                                        raise RuntimeError("Native compact returned no completion boundary")
+                        except Exception as error:
+                            # Auxiliary maintenance must not erase a successful user turn.
+                            emit("diagnostic", message="Context maintenance unavailable: " + str(error)[:500])
+                            if compaction.fired:
+                                emit("context_compaction_failed", needs_rollover=True)
+                    if terminal:
+                        if stop.is_set() and not guard_error:
+                            terminal["status"] = "interrupted"
+                        emit("completed", **terminal)
                 finally:
                     stopper.cancel()
         else:
@@ -314,6 +354,9 @@ async def main():
             pending = {}
             thread = None
             turn = None
+            terminal = None
+            maintaining = False
+            compact_done = asyncio.Event()
 
             async def send(value):
                 proc.stdin.write((json.dumps(value) + "\n").encode())
@@ -351,7 +394,7 @@ async def main():
             tasks = set()
 
             async def reader():
-                nonlocal turn
+                nonlocal turn, terminal
                 while line := await proc.stdout.readline():
                     msg = json.loads(line)
                     if "method" not in msg:
@@ -378,9 +421,11 @@ async def main():
                         tasks.add(task)
                         task.add_done_callback(tasks.discard)
                     elif msg["method"] == "item/agentMessage/delta":
-                        emit("delta", text=msg["params"]["delta"])
+                        if not maintaining:
+                            emit("delta", text=msg["params"]["delta"])
                     elif msg["method"] == "thread/tokenUsage/updated":
                         usage = msg.get("params", {}).get("tokenUsage", {})
+                        compaction.usage(usage.get("last", {}).get("totalTokens"), usage.get("modelContextWindow"))
                         emit(
                             "usage",
                             session_id=thread,
@@ -419,7 +464,11 @@ async def main():
                             msg["method"] == "item/completed"
                             and item.get("type") == "contextCompaction"
                         ):
-                            emit("context_compacted", item_id=item.get("id"))
+                            compaction.boundary()
+                            compact_done.set()
+                            emit("context_compacted", item_id=item.get("id"), **(
+                                {"summary": item["summary"]} if isinstance(item.get("summary"), str) else {}
+                            ))
                         if item.get("type") in {
                             "commandExecution",
                             "fileChange",
@@ -463,14 +512,18 @@ async def main():
                         turn = msg["params"]["turn"]["id"]
                     elif msg["method"] == "turn/completed":
                         native = msg["params"]["turn"]
-                        emit(
-                            "completed",
+                        if maintaining:
+                            if native["status"] != "completed":
+                                emit("context_compaction_failed", needs_rollover=True)
+                                compact_done.set()
+                            continue
+                        terminal = dict(
                             status="failed" if guard_error else native["status"],
                             error=guard_error or native.get("error"),
                         )
                         done.set()
-                        return
-                raise RuntimeError("Native server closed before terminal event")
+                if terminal is None or (maintaining and not compact_done.is_set()):
+                    raise RuntimeError("Native server closed before terminal event")
 
             reader_task = asyncio.create_task(reader())
             try:
@@ -553,6 +606,7 @@ async def main():
                     params.pop("approvalsReviewer", None)
                 if request["session_id"]:
                     params["threadId"] = request["session_id"]
+                input_prompt = request["prompt"]
                 try:
                     result = await rpc(
                         "thread/resume" if request["session_id"] else "thread/start",
@@ -587,6 +641,7 @@ async def main():
                         )
                         params.pop("threadId", None)
                         result = await rpc("thread/start", params)
+                        input_prompt = request.get("replay_prompt") or request["prompt"]
                     else:
                         raise
                 thread = result["thread"]["id"]
@@ -607,7 +662,7 @@ async def main():
                     "turn/start",
                     {
                         "threadId": thread,
-                        "input": [{"type": "text", "text": request["prompt"]}],
+                        "input": [{"type": "text", "text": input_prompt}],
                         "approvalPolicy": params["approvalPolicy"],
                         **(
                             {"approvalsReviewer": params["approvalsReviewer"]}
@@ -637,9 +692,33 @@ async def main():
                 )
                 if stop_task in finished and not done.is_set():
                     await rpc("turn/interrupt", {"threadId": thread, "turnId": turn})
-                    await asyncio.wait_for(asyncio.shield(reader_task), 30)
+                    await asyncio.wait_for(done.wait(), 30)
                 elif reader_task in finished:
                     await reader_task
+                if terminal and terminal["status"] == "completed" and not request.get("review_only") and not stop.is_set() and compaction.should_compact():
+                    maintaining = True
+                    emit("context_compaction_started", threshold=compaction.threshold, source="host")
+                    compact_done.clear()
+                    compact_wait = None
+                    try:
+                        async with asyncio.timeout(120):
+                            await rpc("thread/compact/start", {"threadId": thread})
+                            compact_wait = asyncio.create_task(compact_done.wait())
+                            settled, _ = await asyncio.wait([compact_wait, stop_task, reader_task], return_when=asyncio.FIRST_COMPLETED)
+                            if stop_task in settled:
+                                await rpc("turn/interrupt", {"threadId": thread, "turnId": turn})
+                            elif reader_task in settled:
+                                await reader_task
+                    except Exception as error:
+                        emit("diagnostic", message="Native compaction failed: " + str(error)[:500])
+                        emit("context_compaction_failed", needs_rollover=True)
+                    finally:
+                        if compact_wait:
+                            compact_wait.cancel()
+                if terminal:
+                    if stop.is_set() and not guard_error:
+                        terminal["status"] = "interrupted"
+                    emit("completed", **terminal)
                 stop_task.cancel()
                 done_task.cancel()
             finally:

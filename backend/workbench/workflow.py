@@ -9,7 +9,8 @@ from .runtime import RunRequest
 from .store import now, uid
 from .collaboration import Collaboration
 from .context_signals import ContextSignals
-from .history_context import history_context
+from .history_context import history_context, continuation_context
+from .native_compaction import save_digest
 from .loop_review import review_prompt, redact
 
 
@@ -337,14 +338,27 @@ class Workflow:
                     instructions += '\n历史决策或已有实现需要背景时，先用 memory_search 查询索引，再用 memory_read 按 ID 分段读取正文。索引仅包含最近 20 条，其他记忆通过搜索查找。当前用户要求和项目规则优先于历史资料。'
                     instructions += '\n可将有长期价值的项目事实写入 memory-notes.json，格式为 [{"category":"project","content":"事实"}]。不保存凭据或整段对话。'
                 history = self.store.all(
-                    "SELECT role,content FROM messages WHERE task_id=? ORDER BY created_at",
+                    "SELECT id,role,content FROM messages WHERE task_id=? ORDER BY created_at,id",
                     (task_id,),
                 )
-                prompt = history_context(history)
+                replay_prompt = history_context(history)
+                prompt = replay_prompt
+                if task["session_id"]:
+                    previous = self.store.one(
+                        "SELECT snapshot FROM runs WHERE task_id=? AND id<>? AND session_id=? AND status='completed' ORDER BY created_at DESC LIMIT 1",
+                        (task_id, run_id, task["session_id"]),
+                    )
+                    consumed = json.loads(previous["snapshot"]).get("history_message_ids") if previous else None
+                    if isinstance(consumed, list):
+                        prompt = continuation_context(history, set(consumed))
+                snapshot["history_message_ids"] = [m["id"] for m in history]
+                self.store.execute("UPDATE runs SET snapshot=? WHERE id=?", (json.dumps(snapshot), run_id))
+                history_prompt = prompt
                 if task["mode"] == "development":
                     prompt += f"\n\n当前只执行阶段 {task['stage'] + 1}：{STAGES[task['stage']][0]}。{STAGES[task['stage']][1]} 不要越过本阶段。"
                 if task["mode"] == "free" or task["stage"] == 6:
                     prompt += '\n交付时必须写入 delivery.json，格式 {"deliverables":["实际成果相对路径"],"checks":[{"name":"验收条件","status":"passed|failed|unverified","evidence":"实际命令与观察记录"}]}。不得把 delivery.json 自身作为唯一成果，不伪造检查通过。'
+                replay_prompt += prompt[len(history_prompt):]
                 before = {
                     file["path"]: digest(safe_path(self.workspace(task), file["path"]))
                     for file in inventory(self.workspace(task))
@@ -354,9 +368,11 @@ class Workflow:
                     engine=task["engine"],
                     workspace=str(self.workspace(task)),
                     prompt=prompt,
+                    replay_prompt=replay_prompt,
                     session_id=task["session_id"],
                     model=task["model"],
                     instructions=instructions,
+                    compaction_threshold_pct=self.settings.compaction_threshold_pct,
                     mcp_servers=mcp,
                     permission_mode=task["permission_mode"],
                     platform_bridge=True,
@@ -389,7 +405,9 @@ class Workflow:
                             job.add_done_callback(pending.discard)
                             continue
                         self.store.event(task_id, event.kind, event.data, run_id)
-                        if project["memory_enabled"] and event.kind in {
+                        if event.kind == "context_compaction_failed" and event.data.get("needs_rollover"):
+                            self.store.execute("UPDATE tasks SET session_id=NULL WHERE id=?", (task_id,))
+                        if event.kind in {
                             "context_usage",
                             "context_compacted",
                         }:
@@ -401,6 +419,15 @@ class Workflow:
                                     self.context_signals.compact(
                                         project["id"], task["engine"], current_session
                                     )
+                                    try:
+                                        memory_id = save_digest(
+                                            self.store, project["id"], task_id, task["engine"],
+                                            current_session, event.data,
+                                        )
+                                        if memory_id:
+                                            self.store.event(task_id, "compaction_digest_saved", {"memory_id": memory_id}, run_id)
+                                    except Exception as error:
+                                        self.store.event(task_id, "diagnostic", {"message": "压缩摘要保存失败，不影响本轮成果", "error_type": type(error).__name__}, run_id)
                                 else:
                                     for signal in self.context_signals.usage(
                                         project["id"],

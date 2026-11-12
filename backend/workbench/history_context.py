@@ -3,6 +3,14 @@
 import json
 
 
+def continuation_context(messages, consumed_ids):
+    """A resumed native session already owns prior assistant/tool history."""
+    return "\n\n".join(
+        m["role"] + ": " + m["content"]
+        for m in messages if m["id"] not in consumed_ids and m["role"] == "user"
+    ) or "继续当前任务，遵守本次执行指令。"
+
+
 def history_context(messages, limit=100000, recent_budget=60000):
     """Keep recent messages intact and an extractive digest of older messages.
 

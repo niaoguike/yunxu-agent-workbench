@@ -1,6 +1,15 @@
 import pytest
 
-from workbench.history_context import history_context
+from workbench.history_context import history_context, continuation_context
+
+
+def test_resume_does_not_reinject_consumed_history():
+    messages = [
+        {"id": "1", "role": "user", "content": "old requirement"},
+        {"id": "2", "role": "assistant", "content": "native result"},
+        {"id": "3", "role": "user", "content": "new requirement"},
+    ]
+    assert continuation_context(messages, {"1"}) == "user: new requirement"
 
 
 def test_small_history_is_unchanged():

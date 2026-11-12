@@ -336,7 +336,7 @@ class Collaboration:
             if name == "memory_search":
                 q = arguments.get("query", "")
                 return self.store.all(
-                    "SELECT id,category,substr(content,1,80) AS summary,revision FROM memories WHERE project_id=? AND content LIKE ? ORDER BY created_at DESC,id LIMIT 20",
+                    "SELECT id,category,substr(content,1,80) AS summary,revision FROM memories WHERE project_id=? AND state='active' AND scope='project' AND content LIKE ? ORDER BY created_at DESC,id LIMIT 20",
                     (task["project_id"], "%" + str(q)[:500] + "%"),
                 )
             if name == "memory_read":
@@ -345,7 +345,7 @@ class Collaboration:
                 if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 2000:
                     raise ValueError("记忆读取范围不合法")
                 item = self.store.one(
-                    "SELECT id,category,content,revision FROM memories WHERE project_id=? AND id=?",
+                    "SELECT id,category,content,revision FROM memories WHERE project_id=? AND id=? AND state='active' AND scope='project'",
                     (task["project_id"], arguments.get("id")),
                 )
                 if not item:
@@ -363,21 +363,10 @@ class Collaboration:
                 or category not in {"user", "feedback", "project", "reference"}
             ):
                 raise ValueError("记忆内容或分类不合法")
-            previous = self.store.one(
-                "SELECT * FROM memories WHERE project_id=? AND content=?",
-                (task["project_id"], content),
-            )
-            if previous:
-                return {"id": previous["id"], "saved": True, "duplicate": True}
-            memory_id = uid()
-            self.store.execute(
-                "INSERT INTO memories(id,project_id,category,content,created_at) VALUES(?,?,?,?,?)",
-                (memory_id, task["project_id"], category, content, now()),
-            )
-            self.store.event(
-                task_id, "memory_saved", {"memory_id": memory_id, "category": category}
-            )
-            return {"id": memory_id, "saved": True}
+            mid = self.workflow.memory_governance.propose(task["project_id"], content, category,
+                fact_key=arguments.get("fact_key"), scope=arguments.get("scope", "project"),
+                source=task["engine"]+":"+str(task.get("session_id")),task_id=task_id,evidence=arguments.get("evidence"))
+            return {"id":mid,"saved":True,"state":self.store.one("SELECT state FROM memories WHERE id=?",(mid,))["state"]}
         parent = self.leader(task_id)
         if name == "list_workers":
             return self.store.all(

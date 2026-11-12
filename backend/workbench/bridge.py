@@ -84,9 +84,12 @@ TOOLS = [
     ),
     spec(
         "memory_save",
-        "Save a durable project fact, never credentials or chat transcripts. Requires memory opt-in.",
+        "Propose a fact for platform verification; not immediately active. Supply fact_key, scope and evidence when available.",
         {
             "content": STRING,
+            "fact_key": STRING,
+            "scope": STRING,
+            "evidence": {"type":"object", "properties":{"path":STRING,"digest":STRING,"pointer":{"type":"array","items":STRING},"value":{}},"required":["path","digest","pointer","value"]},
             "category": {
                 "type": "string",
                 "enum": ["user", "feedback", "project", "reference"],

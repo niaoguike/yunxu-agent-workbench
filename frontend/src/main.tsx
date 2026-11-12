@@ -1007,6 +1007,7 @@ function App() {
                                 </button>
                               </>
                             )}
+                            {tab === "记忆" && <div><p>{v.state} · {v.fact_key} · {v.scope}</p>{["pending","conflict"].includes(v.state) && <button onClick={() => act(async () => { await api(`/memories/${v.id}/approve`, "POST"); await loadItems(); })}>核验属实，发布并替代旧版本</button>}</div>}
                             {tab === "协作" ? (
                               <button
                                 onClick={() => {

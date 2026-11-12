@@ -85,6 +85,9 @@ class ApprovalDecision(BaseModel):
 
 
 class MemoryInput(BaseModel):
+    fact_key: str | None = Field(default=None, min_length=1, max_length=240)
+    scope: str = Field(default="project", min_length=1, max_length=240)
+    evidence: dict = Field(default_factory=dict)
     category: Literal["user", "feedback", "project", "reference"] = "project"
     content: str = Field(min_length=1, max_length=4000)
 
@@ -987,6 +990,8 @@ def create_app(settings: Settings | None = None, runtime=None):
                     "INSERT INTO messages VALUES(?,?,?,?,?)",
                     (uid(), task_id, "user", "确认反馈：" + body.comment, now()),
                 )
+        if body.decision == "approve":
+            workflow.memory_governance.settle(task["id"], workflow.workspace(task))
         if body.decision == "approve" and task["mode"] == "development":
             workflow.enqueue(task_id)
         return {"ok": True}
@@ -1223,21 +1228,27 @@ def create_app(settings: Settings | None = None, runtime=None):
     @app.post("/api/projects/{project_id}/memories", status_code=201)
     async def create_memory(project_id: str, body: MemoryInput, owner=Depends(user)):
         project_owned(project_id, owner)
-        memory_id = uid()
-        store.execute(
-            "INSERT INTO memories(id,project_id,category,content,created_at) VALUES(?,?,?,?,?)",
-            (memory_id, project_id, body.category, body.content, now()),
-        )
+        memory_id = workflow.memory_governance.propose(project_id,body.content,body.category,
+            fact_key=body.fact_key,scope=body.scope,source="user",evidence=body.evidence)
         return store.one("SELECT * FROM memories WHERE id=?", (memory_id,))
 
     @app.patch("/api/memories/{memory_id}")
     async def update_memory(memory_id: str, body: MemoryInput, owner=Depends(user)):
         item = child_owned("memories", memory_id, owner)
-        store.execute(
-            "UPDATE memories SET category=?,content=?,revision=revision+1 WHERE id=?",
-            (body.category, body.content, memory_id),
-        )
+        memory_id = workflow.memory_governance.propose(item['project_id'],body.content,body.category,
+            fact_key=body.fact_key or item['fact_key'] or 'legacy:'+item['id'],
+            scope=body.scope if 'scope' in body.model_fields_set else item['scope'],source='user-edit',evidence=body.evidence)
         await stop_project(item["project_id"])
+        return store.one("SELECT * FROM memories WHERE id=?", (memory_id,))
+
+    @app.post("/api/memories/{memory_id}/approve")
+    async def approve_memory(memory_id: str, owner=Depends(user)):
+        item = child_owned("memories", memory_id, owner)
+        try:
+            workflow.memory_governance.publish(memory_id, approved=True)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+        await stop_project(item['project_id'])
         return store.one("SELECT * FROM memories WHERE id=?", (memory_id,))
 
     @app.delete("/api/memories/{memory_id}")

@@ -109,10 +109,10 @@ class NativeMemorySync:
                                 chunk = content[start:start+4000].strip()
                                 if not chunk:
                                     continue
-                                existing = db.execute('SELECT id FROM memories WHERE project_id=? AND content=?', (project_id, chunk)).fetchone()
+                                existing = db.execute("SELECT id FROM memories WHERE project_id=? AND content=? AND state NOT IN ('withdrawn','superseded')", (project_id, chunk)).fetchone()
                                 mid = existing['id'] if existing else uid()
                                 if not existing:
-                                    db.execute("INSERT INTO memories(id,project_id,category,content,created_at) VALUES(?,?,'reference',?,?)", (mid,project_id,chunk,now()))
+                                    db.execute("INSERT INTO memories(id,project_id,category,content,created_at,fact_key,source) VALUES(?,?,'reference',?,?,?,?)", (mid,project_id,chunk,now(),'unclassified:'+hashlib.sha256(chunk.encode()).hexdigest(),engine+':'+source))
                                     db.execute('INSERT INTO native_memory_generated VALUES(?,?)', (mid,chunk))
                                 ids.append(mid)
                             db.execute('INSERT OR REPLACE INTO native_memory_files VALUES(?,?,?,?,?,?)', (project_id,source,engine,fingerprint,json.dumps(ids),now()))
@@ -124,6 +124,6 @@ class NativeMemorySync:
         live = {mid for row in self.store.all('SELECT entries FROM native_memory_files') for mid in json.loads(row['entries'])}
         for row in self.store.all('SELECT g.id,g.content FROM native_memory_generated g JOIN memories m ON m.id=g.id WHERE m.project_id=?', (project_id,)):
             if row['id'] not in live:
-                self.store.execute('DELETE FROM memories WHERE id=? AND content=?', (row['id'],row['content']))
+                self.store.execute("UPDATE memories SET state='withdrawn',revision=revision+1 WHERE id=? AND content=?", (row['id'],row['content']))
                 self.store.execute('DELETE FROM native_memory_generated WHERE id=?', (row['id'],))
         return {'files': len(seen), 'changed': changed}

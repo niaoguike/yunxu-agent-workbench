@@ -281,6 +281,8 @@ def test_memory_index_and_scoped_chunk_read(setup):
     with pytest.raises(ValueError):
         call("memory_read", {"id": memory["id"]})
     client.patch(f"/api/projects/{project['id']}", json={"memory_enabled": True})
+    assert call("memory_search", {"query": "summary"}) == []
+    client.post(f"/api/memories/{memory['id']}/approve")
     index = call("memory_search", {"query": "summary"})
     assert len(index[0]["summary"]) == 80
     assert "content" not in index[0]

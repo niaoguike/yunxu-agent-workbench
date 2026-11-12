@@ -3,6 +3,12 @@ from workbench.store import Store
 from workbench.config import Settings
 from workbench.native_memory import NativeMemorySync
 from workbench.shared_memory import retrieve
+from workbench.memory_governance import MemoryGovernance
+
+def approve_all(store):
+    for row in store.all("SELECT id FROM memories WHERE state='pending'"):
+        MemoryGovernance(store).publish(row["id"],approved=True)
+
 
 
 def test_native_change_delete_isolation(tmp_path):
@@ -17,11 +23,14 @@ def test_native_change_delete_isolation(tmp_path):
     a=claude/'MEMORY.md'; b=codex/'MEMORY.md'
     a.write_text('shared native fact',encoding='utf-8'); b.write_text('shared native fact',encoding='utf-8')
     assert sync.sync('a')['changed']==2
+    assert retrieve(store,'a','native')==[]
+    approve_all(store)
     assert len(retrieve(store,'a','native'))==1
     assert retrieve(store,'b','native')==[]
     assert sync.sync('a')['changed']==0
     a.write_text('updated native fact',encoding='utf-8')
     sync.sync('a')
+    approve_all(store)
     assert len(retrieve(store,'a','native'))==2
     b.unlink(); sync.sync('a')
     assert [r['content'] for r in retrieve(store,'a','native')]==['updated native fact']
@@ -62,6 +71,8 @@ def test_account_memory_project_attribution(tmp_path, monkeypatch):
     auth = home/'auth.json'; auth.write_text('must remain untouched',encoding='utf-8')
     sync = NativeMemorySync(store,Settings(data_dir=tmp_path,runner='trusted-local'))
     assert sync.sync('a')['changed']==2
+    assert retrieve(store,'a','account')==[]
+    approve_all(store)
     assert len(retrieve(store,'a','account'))==1
     assert retrieve(store,'a','foreign')==[]
     assert retrieve(store,'a','global')==[]

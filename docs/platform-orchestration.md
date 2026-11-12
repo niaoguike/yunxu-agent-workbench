@@ -35,3 +35,14 @@
 用户已批准账户级 Codex 原生记忆只读同步。trusted-local 执行模式自动读取 CODEX_HOME（未设置时为 ~/.codex）下 memories/rollout_summaries 与 memories_v2/rollout_summaries。仅导入带有单一 cwd 元数据且精确匹配当前项目主工作区或成员工作区的摘要。跳过全局混合索引、归属不明和其他项目内容；不读取认证文件，不复制账户配置，不修改 Codex 原生目录。变更、删除与去重沿用项目目录同步机制。Docker 模式不扫描宿主机账户目录。
 
 路径设置依据：[Claude Code memory](https://code.claude.com/docs/en/memory)；Codex存储说明：[OpenAI Memories](https://learn.chatgpt.com/docs/customization/memories)。
+
+
+## 记忆治理
+
+所有新写入（包括原生同步、文件导入、memory_save和压缩摘要）默认待核验，历史数据迁移后也需核验。记忆页可查看状态、事实键和范围，点击“核验属实，发布并替代旧版本”发布。同一事实键和范围有不同内容时，相关记录进入conflict并停止作为有效背景注入；发布选定版本会将其他候选和旧版本标记superseded，记录superseded_by。
+
+memory_save 或 memory-notes.json 支持 fact_key、scope、evidence。自动核验的evidence格式为 {"path":"config.json","digest":"文件SHA256","pointer":["database"],"value":"pg"}，正文必须是证据值的标准JSON表达（字符串需要JSON引号）。仅主任务通过平台交付检查、无需人工验收，或人工验收通过后，平台才尝试发布具有可核验证据的候选。未提供结构证据的自由文本不会自动成为有效事实；需用户核验。成员执行完成不触发长期事实定版。
+
+执行前复查已发布事实的证据文件摘要；文件变化则回到待核验。任务短期状态由任务记录和近期用户要求构成，优先表达当前目标和执行状态，不能当成已完成事实。有效记忆版本变化后，下一轮执行重建原生上下文，保留历史对话并注入当前有效背景。
+
+这是保守的结构事实闭环：自由文本的事实键提取、任意自然语言命题和测试语义证明不会由模型单独裁决。无法判断时留在候选区，而不是猜测正确版本。

@@ -333,6 +333,8 @@ def test_memory_opt_in_and_skill_snapshot(setup):
     assert "Cite sources" in engine.requests[-1].instructions
     client.patch(f"/api/projects/{project['id']}", json={"memory_enabled": True})
     client.patch(f"/api/extensions/{skill['id']}", json={"enabled": False})
+    for memory in client.get(f"/api/projects/{project['id']}/memories").json():
+        client.post(f"/api/memories/{memory['id']}/approve")
     client.post(f"/api/tasks/{item['id']}/messages", json={"content": "second"})
     wait_task(client, item["id"], {"waiting_confirmation"})
     assert "Use UTC timestamps" in engine.requests[-1].instructions

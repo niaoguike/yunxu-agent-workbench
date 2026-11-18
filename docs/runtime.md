@@ -31,3 +31,10 @@ credentialed tool behavior still requires live verification. Docker readiness
 checks daemon/image availability; it does not claim authentication success.
 Native completion closes a run, while the platform separately validates the
 delivery manifest and handles configured acceptance gates.
+
+Executor selection uses `create_executor(engine)` in `workbench.executors`.
+The factory registry maps engine names to independent `ClaudeExecutor` and
+`CodexExecutor` adapters implementing the `Executor.execute(context)` contract.
+The JSONL runner owns common controls and mutable guard state; adapters own native
+SDK/protocol translation. Adding an adapter requires registry entry plus its
+prerequisite/deployment and API configuration; the runner dispatch stays unchanged.

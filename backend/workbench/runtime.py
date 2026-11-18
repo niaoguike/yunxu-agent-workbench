@@ -8,6 +8,7 @@ import uuid
 import os
 import signal
 from pathlib import Path
+from .executors import EXECUTOR_TYPES
 
 
 @dataclass
@@ -47,7 +48,7 @@ class RuntimeManager:
         if mode == "disabled":
             return [
                 dict(engine=e, available=False, reason="Runner disabled")
-                for e in ("codex", "claude")
+                for e in EXECUTOR_TYPES
             ]
         if mode == "docker":
             reason = "Docker CLI unavailable"
@@ -72,7 +73,7 @@ class RuntimeManager:
                                 authenticated=None,
                                 reason="Runner image available; authentication is verified at native startup",
                             )
-                            for e in ("codex", "claude")
+                            for e in EXECUTOR_TYPES
                         ]
                     reason = "Docker daemon unavailable or runner image not built"
                 except asyncio.TimeoutError:
@@ -83,7 +84,7 @@ class RuntimeManager:
                     reason = str(error)
             return [
                 dict(engine=e, available=False, reason=reason)
-                for e in ("codex", "claude")
+                for e in EXECUTOR_TYPES
             ]
         return [
             dict(
@@ -106,7 +107,7 @@ class RuntimeManager:
                 "completed", {"status": "failed", "error": "Runner disabled"}
             )
             return
-        if request.engine not in ("claude", "codex"):
+        if request.engine not in EXECUTOR_TYPES:
             yield RuntimeEvent(
                 "completed", {"status": "failed", "error": "Unknown engine"}
             )

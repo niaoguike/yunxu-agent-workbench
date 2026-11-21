@@ -1,0 +1,30 @@
+export function personalStatus(value: string) {
+  const labels: Record<string, string> = {
+    draft: "草稿",
+    active: "进行中",
+    waiting: "等待处理",
+    paused: "已暂停",
+    completed: "已完成",
+    cancelled: "已取消",
+    idle: "待开始",
+    queued: "排队中",
+    running: "执行中",
+    stopping: "正在停止",
+    failed: "执行失败",
+    interrupted: "已中断",
+    delivered: "已交付",
+    waiting_permission: "等待授权",
+    waiting_confirmation: "等待确认",
+    pending: "待处理",
+    dispatched: "已派发",
+    dispatching: "正在派发",
+    resolved: "已记录",
+    unknown: "结果待核查",
+    connected: "已连接",
+    revoked: "已撤销",
+    error: "连接异常",
+    not_created: "尚未创建",
+    ready: "可使用",
+  };
+  return labels[value] || value;
+}

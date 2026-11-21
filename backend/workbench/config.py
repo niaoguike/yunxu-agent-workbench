@@ -33,3 +33,10 @@ class Settings:
     )
     max_upload: int = 20 * 1024 * 1024
     max_run_seconds: int = 1800
+    compaction_threshold_pct: int = field(
+        default_factory=lambda: int(os.getenv("WORKBENCH_COMPACTION_THRESHOLD_PCT", "90"))
+    )
+
+    def __post_init__(self):
+        if not 50 <= self.compaction_threshold_pct <= 95:
+            raise ValueError("WORKBENCH_COMPACTION_THRESHOLD_PCT must be between 50 and 95")

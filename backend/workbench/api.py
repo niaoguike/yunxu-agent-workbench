@@ -16,10 +16,14 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .computer import Computer
+from .connections import Connections
+from .personal import PersonalAssistant, AssistantMessage
+from .goals import Goals, GoalInput, GoalChange, GoalMessage, GoalPatch
 from .automations import Routines, RoutineInput, ConnectionInput, next_due, token_names
 from .charts import ChartConfig, ChartRevision, parse_csv, save_revision, ChartConflict
 from .config import Settings
@@ -27,6 +31,7 @@ from .files import digest, import_zip, inventory, safe_path
 from .runtime import RuntimeManager
 from .store import Store, now, uid
 from .workflow import STAGES, Workflow
+from .orchestrator import Orchestrator
 
 
 class Credentials(BaseModel):
@@ -84,6 +89,9 @@ class ApprovalDecision(BaseModel):
 
 
 class MemoryInput(BaseModel):
+    fact_key: str | None = Field(default=None, min_length=1, max_length=240)
+    scope: str = Field(default="project", min_length=1, max_length=240)
+    evidence: dict = Field(default_factory=dict)
     category: Literal["user", "feedback", "project", "reference"] = "project"
     content: str = Field(min_length=1, max_length=4000)
 
@@ -140,14 +148,34 @@ def create_app(settings: Settings | None = None, runtime=None):
     runtime = runtime or RuntimeManager(settings)
     workflow = Workflow(store, settings, runtime)
     routines = Routines(store, workflow, runtime)
+    goals = Goals(store, routines)
+    personal = PersonalAssistant(store, routines)
+    routines.personal = personal
+    workflow.goals = goals
+    connections = Connections(store, goals)
+    workflow.connections = connections
+    computer = Computer(store)
+    workflow.computer = computer
+    orchestrator = Orchestrator(workflow)
 
     @asynccontextmanager
     async def lifespan(app):
         workflow.recover()
         routines.start()
+        goals.start()
+        connections.start()
+        store.execute(
+            "UPDATE computer_actions SET status='unknown' WHERE status='executing'"
+        )
+        orchestrator.start()
+        workflow.native_memory.start()
         try:
             yield
         finally:
+            await workflow.native_memory.close()
+            await orchestrator.close()
+            await connections.close()
+            await goals.close()
             await routines.close()
             await workflow.close()
         store.connection.close()
@@ -179,6 +207,237 @@ def create_app(settings: Settings | None = None, runtime=None):
         if not found:
             raise HTTPException(401, "请先登录")
         return found
+
+    @app.get("/api/personal/computer/actions")
+    async def computer_actions(owner=Depends(user)):
+        return store.all(
+            "SELECT id,payload,reason,status FROM computer_actions WHERE owner_id=? ORDER BY rowid DESC LIMIT 100",
+            (owner["id"],),
+        )
+
+    @app.post("/api/personal/computer/actions/{action_id}/approve")
+    async def approve_computer(action_id: str, owner=Depends(user)):
+        return await computer.approve(owner["id"], action_id)
+
+    @app.post("/api/personal/computer/actions/{action_id}/reject")
+    async def reject_computer(action_id: str, owner=Depends(user)):
+        if not store.execute(
+            "UPDATE computer_actions SET status='rejected' WHERE id=? AND owner_id=? AND status='pending'",
+            (action_id, owner["id"]),
+        ):
+            raise HTTPException(404, "待审批操作不存在")
+        return {"status": "rejected"}
+
+    @app.get("/api/personal/computer")
+    async def computer_status(owner=Depends(user)):
+        return store.one(
+            "SELECT status FROM personal_computers WHERE owner_id=?", (owner["id"],)
+        ) or {"status": "not_created"}
+
+    @app.post("/api/personal/computer/start")
+    async def start_computer(owner=Depends(user)):
+        return await computer.start(owner["id"])
+
+    @app.post("/api/personal/computer/stop")
+    async def stop_computer(owner=Depends(user)):
+        return await computer.stop(owner["id"])
+
+    @app.post("/api/personal/computer/control")
+    async def control_computer(body: dict, owner=Depends(user)):
+        if len(json.dumps(body)) > 20000:
+            raise HTTPException(422, "操作内容过长")
+        return await computer.control(owner["id"], body)
+
+    @app.get("/api/personal/connections")
+    async def personal_connections(owner=Depends(user)):
+        return connections.list(owner["id"])
+
+    @app.post("/api/personal/connections/{provider}/authorize")
+    async def authorize_connection(provider: str, owner=Depends(user)):
+        return connections.authorize(owner["id"], provider)
+
+    @app.get("/api/personal/oauth/callback")
+    async def oauth_callback(state: str, code: str, owner=Depends(user)):
+        await connections.callback(owner["id"], state, code)
+        return RedirectResponse(settings.origin, status_code=303)
+
+    @app.post("/api/personal/connections/{connection_id}/sync")
+    async def sync_connection(connection_id: str, owner=Depends(user)):
+        connections.owned(connection_id, owner["id"])
+        store.execute(
+            "UPDATE personal_connections SET status='connected' WHERE id=?",
+            (connection_id,),
+        )
+        return await connections.sync(connection_id, owner["id"])
+
+    @app.delete("/api/personal/connections/{connection_id}")
+    async def revoke_connection(connection_id: str, owner=Depends(user)):
+        return await connections.revoke(connection_id, owner["id"])
+
+    @app.post("/api/personal/connections/{connection_id}/goals/{goal_id}")
+    async def subscribe_connection(
+        connection_id: str, goal_id: str, owner=Depends(user)
+    ):
+        connections.owned(connection_id, owner["id"])
+        goals.get(goal_id, owner["id"])
+        store.execute(
+            "INSERT OR IGNORE INTO personal_subscriptions VALUES(?,?)",
+            (connection_id, goal_id),
+        )
+        return {"status": "subscribed"}
+
+    @app.get("/api/personal/actions")
+    async def personal_actions(owner=Depends(user)):
+        return store.all(
+            "SELECT a.id,a.payload,a.status,a.result,c.provider FROM personal_actions a JOIN personal_connections c ON c.id=a.connection_id WHERE c.owner_id=? ORDER BY a.created_at DESC LIMIT 100",
+            (owner["id"],),
+        )
+
+    @app.post("/api/personal/actions/{action_id}/approve")
+    async def approve_action(action_id: str, owner=Depends(user)):
+        return await connections.approve(action_id, owner["id"])
+
+    @app.post("/api/personal/actions/{action_id}/reject")
+    async def reject_action(action_id: str, owner=Depends(user)):
+        count = store.execute(
+            "UPDATE personal_actions SET status='rejected' WHERE id=? AND status='pending' AND connection_id IN (SELECT id FROM personal_connections WHERE owner_id=?)",
+            (action_id, owner["id"]),
+        )
+        if not count:
+            raise HTTPException(404, "待审批操作不存在")
+        return {"status": "rejected"}
+
+    @app.get("/api/personal")
+    async def personal_home(owner=Depends(user)):
+        return personal.get(owner["id"])
+
+    @app.post("/api/personal/messages")
+    async def personal_message(body: AssistantMessage, owner=Depends(user)):
+        return await personal.send(owner["id"], body.content)
+
+    @app.post("/api/personal/goals", status_code=201)
+    async def personal_goal(body: GoalMessage, owner=Depends(user)):
+        home = personal.get(owner["id"])
+        config = GoalInput(
+            project_id=home["project_id"],
+            title=body.content[:240],
+            desired_outcome=body.content,
+            success_criteria=["用户确认目标结果符合要求"],
+        )
+        goal_id = uid()
+        store.execute(
+            "INSERT INTO goals(id,owner_id,project_id,config,status,created_at) VALUES(?,?,?,?,'draft',?)",
+            (goal_id, owner["id"], home["project_id"], config.model_dump_json(), now()),
+        )
+        return goals.get(goal_id, owner["id"])
+
+    @app.get("/api/goals")
+    async def list_goals(owner=Depends(user)):
+        return [
+            goals.get(r["id"], owner["id"])
+            for r in store.all(
+                "SELECT g.id FROM goals g JOIN projects p ON p.id=g.project_id WHERE g.owner_id=? AND p.deleted_at IS NULL ORDER BY g.created_at DESC LIMIT 100",
+                (owner["id"],),
+            )
+        ]
+
+    @app.post("/api/goals", status_code=201)
+    async def create_goal(body: GoalInput, owner=Depends(user)):
+        project_owned(body.project_id, owner)
+        goal_id = uid()
+        store.execute(
+            "INSERT INTO goals(id,owner_id,project_id,config,status,created_at) VALUES(?,?,?,?,'draft',?)",
+            (goal_id, owner["id"], body.project_id, body.model_dump_json(), now()),
+        )
+        return goals.get(goal_id, owner["id"])
+
+    @app.patch("/api/goals/{goal_id}")
+    async def patch_goal(goal_id: str, body: GoalPatch, owner=Depends(user)):
+        goal = goals.get(goal_id, owner["id"])
+        if goal["status"] not in ("draft", "paused", "waiting"):
+            raise HTTPException(409, "请先暂停目标再修改")
+        if body.config.project_id != goal["project_id"]:
+            raise HTTPException(409, "目标不能更换项目")
+        if not store.execute(
+            "UPDATE goals SET config=?,revision=revision+1,next_review=NULL WHERE id=? AND revision=?",
+            (body.config.model_dump_json(), goal_id, body.revision),
+        ):
+            raise HTTPException(409, "目标已更新，请刷新")
+        return goals.get(goal_id, owner["id"])
+
+    @app.get("/api/goals/{goal_id}")
+    async def get_goal(goal_id: str, owner=Depends(user)):
+        return goals.get(goal_id, owner["id"])
+
+    @app.post("/api/goals/{goal_id}/tasks/{task_id}")
+    async def link_goal_task(goal_id: str, task_id: str, owner=Depends(user)):
+        goal = goals.get(goal_id, owner["id"])
+        task = task_owned(task_id, owner)
+        if goal["project_id"] != task["project_id"]:
+            raise HTTPException(409, "任务必须属于目标项目")
+        if goal["status"] in ("completed", "cancelled"):
+            raise HTTPException(409, "目标已经结束")
+        with store.transaction() as db:
+            existing = db.execute(
+                "SELECT goal_id FROM goal_events WHERE task_id=?", (task_id,)
+            ).fetchone()
+            if existing and existing["goal_id"] != goal_id:
+                raise HTTPException(409, "任务已关联其他目标")
+            if not existing:
+                db.execute(
+                    "INSERT INTO goal_events(id,goal_id,event_key,kind,content,status,task_id,created_at) VALUES(?,?,?,'task.linked',?,'resolved',?,?)",
+                    (uid(), goal_id, "link:" + task_id, task["title"], task_id, now()),
+                )
+        return goals.get(goal_id, owner["id"])
+
+    @app.post("/api/goals/{goal_id}/transition")
+    async def change_goal(goal_id: str, body: GoalChange, owner=Depends(user)):
+        return goals.change(goal_id, owner["id"], body)
+
+    @app.post("/api/goals/{goal_id}/events/{event_id}/acknowledge")
+    async def acknowledge_goal(
+        goal_id: str, event_id: str, body: GoalMessage, owner=Depends(user)
+    ):
+        goal = goals.get(goal_id, owner["id"])
+        if goal["status"] in ("completed", "cancelled"):
+            raise HTTPException(409, "目标已经结束")
+        with store.transaction() as db:
+            event = db.execute(
+                "SELECT e.id,t.status FROM goal_events e LEFT JOIN tasks t ON t.id=e.task_id WHERE e.id=? AND e.goal_id=? AND e.status='unknown'",
+                (event_id, goal_id),
+            ).fetchone()
+            if not event:
+                raise HTTPException(404, "待核查事件不存在")
+            if event["status"] in (
+                "queued",
+                "running",
+                "stopping",
+                "waiting_permission",
+            ):
+                raise HTTPException(409, "请先停止关联执行并核查结果")
+            db.execute(
+                "UPDATE goal_events SET status='resolved' WHERE id=?", (event_id,)
+            )
+            db.execute(
+                "INSERT INTO goal_events(id,goal_id,event_key,kind,content,created_at) VALUES(?,?,?,?,?,?)",
+                (
+                    uid(),
+                    goal_id,
+                    "ack:" + event_id,
+                    "user.input",
+                    "用户已核查中断结果：" + body.content,
+                    now(),
+                ),
+            )
+        return goals.get(goal_id, owner["id"])
+
+    @app.post("/api/goals/{goal_id}/inputs", status_code=201)
+    async def goal_input(goal_id: str, body: GoalMessage, owner=Depends(user)):
+        g = goals.get(goal_id, owner["id"])
+        if g["status"] in ("completed", "cancelled"):
+            raise HTTPException(409, "目标已经结束")
+        goals.emit(goal_id, uid(), "user.input", body.content)
+        return goals.get(goal_id, owner["id"])
 
     def project_owned(project_id, owner):
         project = store.one(
@@ -377,6 +636,7 @@ def create_app(settings: Settings | None = None, runtime=None):
     def search_history(project_id: str, q: str, limit: int = 20, owner=Depends(user)):
         project_owned(project_id, owner)
         from .history_search import HistorySearch
+
         try:
             return HistorySearch(store).search(project_id, q, limit)
         except ValueError as exc:
@@ -981,6 +1241,8 @@ def create_app(settings: Settings | None = None, runtime=None):
                     "INSERT INTO messages VALUES(?,?,?,?,?)",
                     (uid(), task_id, "user", "确认反馈：" + body.comment, now()),
                 )
+        if body.decision == "approve":
+            workflow.memory_governance.settle(task["id"], workflow.workspace(task))
         if body.decision == "approve" and task["mode"] == "development":
             workflow.enqueue(task_id)
         return {"ok": True}
@@ -1217,20 +1479,39 @@ def create_app(settings: Settings | None = None, runtime=None):
     @app.post("/api/projects/{project_id}/memories", status_code=201)
     async def create_memory(project_id: str, body: MemoryInput, owner=Depends(user)):
         project_owned(project_id, owner)
-        memory_id = uid()
-        store.execute(
-            "INSERT INTO memories(id,project_id,category,content,created_at) VALUES(?,?,?,?,?)",
-            (memory_id, project_id, body.category, body.content, now()),
+        memory_id = workflow.memory_governance.propose(
+            project_id,
+            body.content,
+            body.category,
+            fact_key=body.fact_key,
+            scope=body.scope,
+            source="user",
+            evidence=body.evidence,
         )
         return store.one("SELECT * FROM memories WHERE id=?", (memory_id,))
 
     @app.patch("/api/memories/{memory_id}")
     async def update_memory(memory_id: str, body: MemoryInput, owner=Depends(user)):
         item = child_owned("memories", memory_id, owner)
-        store.execute(
-            "UPDATE memories SET category=?,content=?,revision=revision+1 WHERE id=?",
-            (body.category, body.content, memory_id),
+        memory_id = workflow.memory_governance.propose(
+            item["project_id"],
+            body.content,
+            body.category,
+            fact_key=body.fact_key or item["fact_key"] or "legacy:" + item["id"],
+            scope=body.scope if "scope" in body.model_fields_set else item["scope"],
+            source="user-edit",
+            evidence=body.evidence,
         )
+        await stop_project(item["project_id"])
+        return store.one("SELECT * FROM memories WHERE id=?", (memory_id,))
+
+    @app.post("/api/memories/{memory_id}/approve")
+    async def approve_memory(memory_id: str, owner=Depends(user)):
+        item = child_owned("memories", memory_id, owner)
+        try:
+            workflow.memory_governance.publish(memory_id, approved=True)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
         await stop_project(item["project_id"])
         return store.one("SELECT * FROM memories WHERE id=?", (memory_id,))
 
@@ -1434,6 +1715,123 @@ def create_app(settings: Settings | None = None, runtime=None):
         store.execute("DELETE FROM extensions WHERE id=?", (extension_id,))
         await stop_project(item["project_id"])
         return {"ok": True}
+
+    @app.get("/api/projects/{project_id}/orchestrations")
+    async def orchestration_list(project_id: str, owner=Depends(user)):
+        project_owned(project_id, owner)
+        rows = store.all(
+            "SELECT * FROM orchestrations WHERE project_id=? ORDER BY created_at DESC",
+            (project_id,),
+        )
+        for row in rows:
+            row["data"] = json.loads(row["data"])
+        return rows
+
+    @app.post("/api/projects/{project_id}/orchestrations", status_code=201)
+    async def orchestration_create(project_id: str, body: Content, owner=Depends(user)):
+        project_owned(project_id, owner)
+        try:
+            return {"id": orchestrator.create(project_id, body.content, "codex")}
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.post("/api/orchestrations/{oid}/{action}")
+    async def orchestration_control(oid: str, action: str, owner=Depends(user)):
+        row = child_owned("orchestrations", oid, owner)
+        data = json.loads(row["data"])
+        if action == "stop":
+            orchestrator.save(row, "stopped", data)
+            await runtime.stop("plan-" + oid)
+            await workflow.stop(row["task_id"])
+            store.execute(
+                "UPDATE tasks SET status='interrupted' WHERE id=? AND status='running'",
+                (row["task_id"],),
+            )
+        elif action == "resume" and row["state"] in {"paused", "conflict"}:
+            store.execute(
+                "UPDATE tasks SET status='running' WHERE id=?", (row["task_id"],)
+            )
+            for node in data["nodes"]:
+                if node["status"] == "running":
+                    task = store.one(
+                        "SELECT status FROM tasks WHERE id=?", (node["task_id"],)
+                    )
+                    if task["status"] in {"paused", "interrupted", "failed"}:
+                        workflow.enqueue(node["task_id"])
+            orchestrator.save(row, "executing" if data["nodes"] else "planning", data)
+        else:
+            raise HTTPException(409, "当前状态不支持此操作")
+        return {"ok": True}
+
+    @app.get("/api/projects/{project_id}/native-sessions")
+    async def native_sessions(project_id: str, owner=Depends(user)):
+        project_owned(project_id, owner)
+        return store.all(
+            "SELECT id,title,engine,session_id,member_id,parent_task_id,status FROM tasks WHERE project_id=? ORDER BY created_at DESC",
+            (project_id,),
+        )
+
+    @app.get("/api/projects/{project_id}/memory-sync")
+    async def memory_sync_status(project_id: str, owner=Depends(user)):
+        project = project_owned(project_id, owner)
+        return {
+            "enabled": bool(project["memory_enabled"]),
+            "interval_seconds": 2,
+            "codex_account_enabled": settings.runner == "trusted-local",
+            "codex_account_scope": "exact_workspace_rollout_summaries",
+            "error": workflow.native_memory.errors.get(project_id),
+            "sources": store.all(
+                "SELECT source,engine,digest,updated_at FROM native_memory_files WHERE project_id=? ORDER BY source",
+                (project_id,),
+            ),
+        }
+
+    @app.post("/api/projects/{project_id}/memory-import/{engine}")
+    async def memory_import(
+        project_id: str, engine: str, file: UploadFile = File(...), owner=Depends(user)
+    ):
+        project = project_owned(project_id, owner)
+        if engine not in {"claude", "codex"}:
+            raise HTTPException(400, "未知执行器")
+        if not project["memory_enabled"]:
+            raise HTTPException(409, "请先开启项目记忆")
+        raw = await file.read(256001)
+        if len(raw) > 256000:
+            raise HTTPException(400, "记忆文件超过256KB")
+        try:
+            content = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raise HTTPException(400, "记忆文件必须为UTF-8文本")
+        imported = []
+        for start in range(0, len(content), 4000):
+            chunk = content[start : start + 4000].strip()
+            if not chunk:
+                continue
+            previous = store.one(
+                "SELECT id FROM memories WHERE project_id=? AND content=?",
+                (project_id, chunk),
+            )
+            mid = previous["id"] if previous else uid()
+            if not previous:
+                store.execute(
+                    "INSERT INTO memories(id,project_id,category,content,created_at) VALUES(?,?,'reference',?,?)",
+                    (mid, project_id, chunk, now()),
+                )
+            imported.append(mid)
+        store.execute(
+            "CREATE TABLE IF NOT EXISTS memory_sources(memory_id TEXT,engine TEXT,filename TEXT,digest TEXT,PRIMARY KEY(memory_id,engine,digest))"
+        )
+        for mid in imported:
+            store.execute(
+                "INSERT OR IGNORE INTO memory_sources VALUES(?,?,?,?)",
+                (
+                    mid,
+                    engine,
+                    (file.filename or "")[:240],
+                    hashlib.sha256(raw).hexdigest(),
+                ),
+            )
+        return {"memory_ids": imported, "engine": engine}
 
     @app.get("/api/projects/{project_id}/members")
     async def members(project_id: str, owner=Depends(user)):

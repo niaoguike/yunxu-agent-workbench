@@ -8,6 +8,7 @@ import uuid
 import os
 import signal
 from pathlib import Path
+from .executors import EXECUTOR_TYPES
 
 
 @dataclass
@@ -25,6 +26,9 @@ class RunRequest:
     bridge_role: str = "leader"
     adaptive_loop_review: bool = False
     review_only: bool = False
+    review_schema: dict | None = None
+    compaction_threshold_pct: int = 90
+    replay_prompt: str | None = None
 
 
 @dataclass
@@ -44,7 +48,7 @@ class RuntimeManager:
         if mode == "disabled":
             return [
                 dict(engine=e, available=False, reason="Runner disabled")
-                for e in ("codex", "claude")
+                for e in EXECUTOR_TYPES
             ]
         if mode == "docker":
             reason = "Docker CLI unavailable"
@@ -69,7 +73,7 @@ class RuntimeManager:
                                 authenticated=None,
                                 reason="Runner image available; authentication is verified at native startup",
                             )
-                            for e in ("codex", "claude")
+                            for e in EXECUTOR_TYPES
                         ]
                     reason = "Docker daemon unavailable or runner image not built"
                 except asyncio.TimeoutError:
@@ -79,8 +83,7 @@ class RuntimeManager:
                 except OSError as error:
                     reason = str(error)
             return [
-                dict(engine=e, available=False, reason=reason)
-                for e in ("codex", "claude")
+                dict(engine=e, available=False, reason=reason) for e in EXECUTOR_TYPES
             ]
         return [
             dict(
@@ -103,7 +106,7 @@ class RuntimeManager:
                 "completed", {"status": "failed", "error": "Runner disabled"}
             )
             return
-        if request.engine not in ("claude", "codex"):
+        if request.engine not in EXECUTOR_TYPES:
             yield RuntimeEvent(
                 "completed", {"status": "failed", "error": "Unknown engine"}
             )
@@ -141,8 +144,11 @@ class RuntimeManager:
             worker_env = {
                 key: value
                 for key, value in os.environ.items()
-                if not key.startswith("WORKBENCH_CHANNEL_")
+                if not key.startswith(("WORKBENCH_CHANNEL_", "WORKBENCH_GOOGLE_"))
+                and key != "WORKBENCH_VAULT_KEY"
             }
+            worker_env["PYTHONUTF8"] = "1"
+            worker_env["PYTHONIOENCODING"] = "utf-8"
             if self.settings.runner == "trusted-local":
                 # Native shells must see the same Python toolchain as the platform.
                 worker_env["PATH"] = (

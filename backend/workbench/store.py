@@ -23,6 +23,8 @@ class Store:
         self.lock = threading.RLock()
         self.connection = sqlite3.connect(path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
+        from .shared_memory import index_text
+        self.connection.create_function("memory_index_text", 1, index_text, deterministic=True)
         self.connection.executescript("""
         PRAGMA journal_mode=WAL;
         PRAGMA foreign_keys=ON;
@@ -83,6 +85,33 @@ class Store:
         }
         if "deleted_at" not in project_columns:
             self.connection.execute("ALTER TABLE projects ADD COLUMN deleted_at REAL")
+        memory_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(memories)")}
+        for name, declaration in {
+            "fact_key": "TEXT NOT NULL DEFAULT ''", "scope": "TEXT NOT NULL DEFAULT 'project'",
+            "state": "TEXT NOT NULL DEFAULT 'pending'", "source": "TEXT NOT NULL DEFAULT 'legacy'",
+            "task_id": "TEXT", "evidence": "TEXT NOT NULL DEFAULT '{}'", "verified_at": "REAL",
+            "valid_from": "REAL", "superseded_by": "TEXT"
+        }.items():
+            if name not in memory_columns:
+                self.connection.execute(f"ALTER TABLE memories ADD COLUMN {name} {declaration}")
+        self.connection.execute("UPDATE memories SET fact_key='legacy:'||id WHERE fact_key=''")
+        indexed = self.connection.execute("SELECT 1 FROM sqlite_master WHERE name='memory_fts'").fetchone()
+        self.connection.executescript("""
+        BEGIN;
+        CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(content, tokenize='unicode61');
+        CREATE TRIGGER IF NOT EXISTS memory_fts_insert AFTER INSERT ON memories BEGIN
+            INSERT INTO memory_fts(rowid,content) VALUES(new.rowid,memory_index_text(new.content));
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_fts_delete AFTER DELETE ON memories BEGIN
+            DELETE FROM memory_fts WHERE rowid=old.rowid;
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_fts_update AFTER UPDATE OF content ON memories BEGIN
+            DELETE FROM memory_fts WHERE rowid=old.rowid;
+            INSERT INTO memory_fts(rowid,content) VALUES(new.rowid,memory_index_text(new.content));
+        END;
+        """)
+        if not indexed:
+            self.connection.execute("INSERT INTO memory_fts(rowid,content) SELECT rowid,memory_index_text(content) FROM memories")
         self.connection.commit()
 
     @contextmanager

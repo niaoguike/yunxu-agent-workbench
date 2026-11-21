@@ -279,22 +279,137 @@ class Collaboration:
         task = self.store.one("SELECT * FROM tasks WHERE id=?", (task_id,))
         if not task or task["status"] not in {"running", "waiting_permission"}:
             raise ValueError("任务已停止或不在可调用状态")
+        if name in {"computer_observe", "computer_propose"}:
+            assistant = self.store.one(
+                "SELECT * FROM personal_assistants WHERE task_id=?", (task_id,)
+            )
+            if not assistant or task["member_id"]:
+                raise ValueError("电脑工具仅供账户主助手使用")
+            computer = self.workflow.computer
+            if name == "computer_observe":
+                return await computer.control(
+                    assistant["owner_id"], {"kind": "screenshot"}
+                )
+            return computer.propose(
+                assistant["owner_id"], arguments["payload"], arguments["reason"]
+            )
+        if name in {"connection_list", "connection_read", "connection_propose"}:
+            assistant = self.store.one(
+                "SELECT * FROM personal_assistants WHERE task_id=?", (task_id,)
+            )
+            if not assistant or task["member_id"]:
+                raise ValueError("连接器仅供账户主助手使用，不向协作者继承凭据和访问权")
+            connections = self.workflow.connections
+            owner = assistant["owner_id"]
+            if name == "connection_list":
+                return connections.list(owner)
+            connection = connections.owned(arguments["connection_id"], owner)
+            if name == "connection_read":
+                return self.store.all(
+                    "SELECT item_id,data FROM personal_items WHERE connection_id=? LIMIT 50",
+                    (connection["id"],),
+                )
+            return connections.propose(connection["id"], owner, arguments["payload"])
+        if name in {"goal_list", "goal_create", "goal_schedule"}:
+            from .goals import GoalInput
+
+            project = self.store.one(
+                "SELECT * FROM projects WHERE id=? AND deleted_at IS NULL",
+                (task["project_id"],),
+            )
+            if not project or task["member_id"]:
+                raise ValueError("目标工具仅供当前主任务使用")
+            goals = self.workflow.goals
+            if name == "goal_list":
+                return [
+                    goals.get(g["id"], project["owner_id"])
+                    for g in self.store.all(
+                        "SELECT id FROM goals WHERE project_id=?", (project["id"],)
+                    )
+                ]
+            if name == "goal_create":
+                config = GoalInput(project_id=project["id"], **arguments)
+                goal_id = uid()
+                self.store.execute(
+                    "INSERT INTO goals(id,owner_id,project_id,config,status,created_at) VALUES(?,?,?,?,'draft',?)",
+                    (
+                        goal_id,
+                        project["owner_id"],
+                        project["id"],
+                        config.model_dump_json(),
+                        now(),
+                    ),
+                )
+                return goals.get(goal_id, project["owner_id"])
+            goal = goals.get(arguments["goal_id"], project["owner_id"])
+            linked = self.store.one(
+                "SELECT id FROM goal_events WHERE goal_id=? AND task_id=? AND status='dispatched'",
+                (goal["id"], task_id),
+            )
+            if (
+                goal["project_id"] != project["id"]
+                or not linked
+                or goal["status"] != "active"
+            ):
+                raise ValueError("只能安排当前任务所属活动目标")
+            delay = arguments.get("delay_seconds")
+            reason = arguments.get("reason")
+            if (
+                not isinstance(delay, int)
+                or not 60 <= delay <= 2592000
+                or not isinstance(reason, str)
+                or not reason.strip()
+                or len(reason) > 16000
+            ):
+                raise ValueError("需要复查时间和理由")
+            self.store.execute(
+                "UPDATE goals SET next_review=?,reason=?,revision=revision+1 WHERE id=?",
+                (now() + delay, reason, goal["id"]),
+            )
+            return goals.get(goal["id"], project["owner_id"])
         if name in {"chart_list", "chart_revise"}:
-            project = self.store.one("SELECT id FROM projects WHERE id=? AND deleted_at IS NULL", (task["project_id"],))
-            if task["member_id"] or task["status"] not in {"running", "waiting_permission"} or not project:
+            project = self.store.one(
+                "SELECT id FROM projects WHERE id=? AND deleted_at IS NULL",
+                (task["project_id"],),
+            )
+            if (
+                task["member_id"]
+                or task["status"] not in {"running", "waiting_permission"}
+                or not project
+            ):
                 raise ValueError("图表工具仅供当前执行中的主任务使用")
             if name == "chart_list":
-                charts = self.store.all("SELECT * FROM charts WHERE task_id=? ORDER BY created_at", (task_id,))
+                charts = self.store.all(
+                    "SELECT * FROM charts WHERE task_id=? ORDER BY created_at",
+                    (task_id,),
+                )
                 result = []
                 for chart in charts:
-                    latest = self.store.one("SELECT version,config FROM chart_versions WHERE chart_id=? ORDER BY version DESC LIMIT 1", (chart["id"],))
+                    latest = self.store.one(
+                        "SELECT version,config FROM chart_versions WHERE chart_id=? ORDER BY version DESC LIMIT 1",
+                        (chart["id"],),
+                    )
                     data = json.loads(chart["data"])
-                    result.append({"id": chart["id"], "source": chart["source"], "columns": data["columns"], "numeric": data["numeric"], "version": latest["version"], "config": json.loads(latest["config"])})
+                    result.append(
+                        {
+                            "id": chart["id"],
+                            "source": chart["source"],
+                            "columns": data["columns"],
+                            "numeric": data["numeric"],
+                            "version": latest["version"],
+                            "config": json.loads(latest["config"]),
+                        }
+                    )
                 return result
-            chart = self.store.one("SELECT * FROM charts WHERE id=? AND task_id=?", (arguments.get("chart_id"), task_id))
+            chart = self.store.one(
+                "SELECT * FROM charts WHERE id=? AND task_id=?",
+                (arguments.get("chart_id"), task_id),
+            )
             if not chart:
                 raise ValueError("图表不属于当前任务")
-            body = ChartRevision.model_validate({k: v for k, v in arguments.items() if k != "chart_id"})
+            body = ChartRevision.model_validate(
+                {k: v for k, v in arguments.items() if k != "chart_id"}
+            )
             return {"version": save_revision(self.store, chart, body, role="assistant")}
         if name == "send_to_lead":
             content = arguments.get("content")
@@ -326,7 +441,7 @@ class Collaboration:
                 },
             )
             return {"delivered": True, "parent_task_id": task["parent_task_id"]}
-        if name in {"memory_search", "memory_save"}:
+        if name in {"memory_search", "memory_read", "memory_save"}:
             project = self.store.one(
                 "SELECT * FROM projects WHERE id=? AND deleted_at IS NULL",
                 (task["project_id"],),
@@ -335,10 +450,41 @@ class Collaboration:
                 raise ValueError("项目自主记忆未启用")
             if name == "memory_search":
                 q = arguments.get("query", "")
-                return self.store.all(
-                    "SELECT id,category,content,revision FROM memories WHERE project_id=? AND content LIKE ? LIMIT 20",
-                    (task["project_id"], "%" + str(q)[:500] + "%"),
+                from .shared_memory import search
+
+                return [
+                    {
+                        "id": row["id"],
+                        "category": row["category"],
+                        "summary": row["content"][:80],
+                        "revision": row["revision"],
+                    }
+                    for row in search(self.store, task["project_id"], str(q))
+                ]
+            if name == "memory_read":
+                offset = arguments.get("offset", 0)
+                limit = arguments.get("limit", 2000)
+                if (
+                    type(offset) is not int
+                    or offset < 0
+                    or type(limit) is not int
+                    or not 1 <= limit <= 2000
+                ):
+                    raise ValueError("记忆读取范围不合法")
+                item = self.store.one(
+                    "SELECT id,category,content,revision FROM memories WHERE project_id=? AND id=? AND state='active' AND scope='project'",
+                    (task["project_id"], arguments.get("id")),
                 )
+                if not item:
+                    raise ValueError("记忆不存在")
+                total = len(item["content"])
+                return {
+                    **item,
+                    "content": item["content"][offset : offset + limit],
+                    "offset": offset,
+                    "total_chars": total,
+                    "next_offset": offset + limit if offset + limit < total else None,
+                }
             content = arguments.get("content")
             category = arguments.get("category", "project")
             if (
@@ -348,21 +494,23 @@ class Collaboration:
                 or category not in {"user", "feedback", "project", "reference"}
             ):
                 raise ValueError("记忆内容或分类不合法")
-            previous = self.store.one(
-                "SELECT * FROM memories WHERE project_id=? AND content=?",
-                (task["project_id"], content),
+            mid = self.workflow.memory_governance.propose(
+                task["project_id"],
+                content,
+                category,
+                fact_key=arguments.get("fact_key"),
+                scope=arguments.get("scope", "project"),
+                source=task["engine"] + ":" + str(task.get("session_id")),
+                task_id=task_id,
+                evidence=arguments.get("evidence"),
             )
-            if previous:
-                return {"id": previous["id"], "saved": True, "duplicate": True}
-            memory_id = uid()
-            self.store.execute(
-                "INSERT INTO memories(id,project_id,category,content,created_at) VALUES(?,?,?,?,?)",
-                (memory_id, task["project_id"], category, content, now()),
-            )
-            self.store.event(
-                task_id, "memory_saved", {"memory_id": memory_id, "category": category}
-            )
-            return {"id": memory_id, "saved": True}
+            return {
+                "id": mid,
+                "saved": True,
+                "state": self.store.one(
+                    "SELECT state FROM memories WHERE id=?", (mid,)
+                )["state"],
+            }
         parent = self.leader(task_id)
         if name == "list_workers":
             return self.store.all(

@@ -1,6 +1,9 @@
+import { PersonalHome } from "./PersonalHome";
+import { GoalsPanel } from "./GoalsPanel";
 import React, { useState as S, useEffect as E, useRef as Ref } from "react";
 import { createRoot } from "react-dom/client";
 import { AutomationPanel, PluginPanel } from "./AutomationPanel";
+import { OrchestrationPanel } from "./OrchestrationPanel";
 import { Charts } from "./Charts";
 import { executionView } from "./execution";
 import "./style.css";
@@ -56,6 +59,7 @@ const status: Row = {
   paused: "已暂停，检查工作区后补充消息继续",
 };
 function App() {
+  const [personalView, PersonalView] = S(true);
   const [user, U] = S<Row | null>(null),
     [ready, R] = S(false),
     [error, Err] = S(""),
@@ -100,7 +104,7 @@ function App() {
     if (selection.current.project === project.id) T(list);
   }
   async function loadItems() {
-    if (!project || ["活动", "自动化", "渠道"].includes(tab)) return;
+    if (!project || ["活动", "目标", "自动化", "渠道", "编排"].includes(tab)) return;
     const selected = { ...selection.current };
     const list = await api(
       tab === "文件" && task?.member_id
@@ -293,12 +297,13 @@ function App() {
         <button className="new" onClick={() => M(user ? "项目" : "login")}>
           ＋ 新建项目
         </button>
+        <button onClick={() => PersonalView(true)}>◈ 我的个人助手</button>
         <div className="label">我的项目</div>
         {projects.map((p) => (
           <button
             className={project?.id === p.id ? "selected" : ""}
             key={p.id}
-            onClick={() => PP(p)}
+            onClick={() => { PersonalView(false); PP(p); }}
           >
             ▧ {p.name}
           </button>
@@ -344,7 +349,7 @@ function App() {
         <header>
           <div>
             <small>工作空间 / {project?.name || "开始工作"}</small>
-            <h2>{task?.title || project?.name || "让想法，成为成果。"}</h2>
+            <h2>{user && personalView ? "你的个人助手" : task?.title || project?.name || "让想法，成为成果。"}</h2>
           </div>
           <div className="headerActions">
             {project && (
@@ -396,7 +401,7 @@ function App() {
             {notice}
           </div>
         )}
-        {!user ? (
+        {user && personalView ? <PersonalHome api={api} openTask={async (id) => { await act(async () => { const t = await api(`/tasks/${id}`); const p = projects.find(p => p.id === t.project_id) || await api(`/projects/${t.project_id}`); if (project?.id !== p.id) resumeTask.current = t; PP(p); TT(t); PersonalView(false); }); }} /> : !user ? (
           <section className="welcome">
             <div className="eyebrow">YOUR IDEAS, IN MOTION</div>
             <h1>
@@ -840,7 +845,7 @@ function App() {
             </section>
             <section className="inspector">
               <div className="tabs">
-                {["文件", "活动", "记忆", "扩展", "协作", "自动化", "渠道"].map(
+                {["目标", "文件", "活动", "记忆", "扩展", "协作", "编排", "自动化", "渠道"].map(
                   (t) => (
                     <button
                       className={tab === t ? "active" : ""}
@@ -853,7 +858,7 @@ function App() {
                 )}
               </div>
               <div className="panelbody">
-                {tab === "自动化" || tab === "渠道" ? (
+                {tab === "目标" ? <GoalsPanel key={project.id} projectId={project.id} api={api} /> : tab === "编排" ? <OrchestrationPanel key={project.id} projectId={project.id} api={api} /> : tab === "自动化" || tab === "渠道" ? (
                   <AutomationPanel
                     key={project.id + tab}
                     projectId={project.id}
@@ -1006,6 +1011,7 @@ function App() {
                                 </button>
                               </>
                             )}
+                            {tab === "记忆" && <div><p>{v.state} · {v.fact_key} · {v.scope}</p>{["pending","conflict"].includes(v.state) && <button onClick={() => act(async () => { await api(`/memories/${v.id}/approve`, "POST"); await loadItems(); })}>核验属实，发布并替代旧版本</button>}</div>}
                             {tab === "协作" ? (
                               <button
                                 onClick={() => {

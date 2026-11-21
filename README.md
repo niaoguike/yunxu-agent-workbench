@@ -5,6 +5,10 @@ Python 控制面 + React 工作台，复用 Claude Code / Codex 原生 Agent loo
 
 目前是可运行的开发版本，尚未完成 PRD 全量验收。功能与验证边界见 [实现状态](docs/implementation-status.md)。
 
+## Personal Agent 开发入口
+
+登录后可进入账户主助手，管理目标、持续责任和复查，使用已授权连接器与持久浏览器适配。配置方法、实现范围及真实联调边界见 [Personal Agent 使用说明](docs/personal-agent.md)。
+
 ## Agent 核心机制
 
 - 原生执行器承担模型与工具循环，平台承担持久任务、权限、协作和交付核验。

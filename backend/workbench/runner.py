@@ -55,8 +55,14 @@ async def main():
     stop = asyncio.Event()
     guard = ToolLoopGuard()
     context = ExecutorContext(
-        request, config, workspace, compaction, permission_mode, stop,
-        permission=None, inspect_tool=None,
+        request,
+        config,
+        workspace,
+        compaction,
+        permission_mode,
+        stop,
+        permission=None,
+        inspect_tool=None,
     )
     monitor = LoopReviewMonitor() if request.get("adaptive_loop_review") else None
 
@@ -97,7 +103,9 @@ async def main():
                 if result:
                     emit("loop_review", **result)
                     if result["decision"] == "stop":
-                        context.guard_error = "重复工具调用复核停止：" + result["reason"]
+                        context.guard_error = (
+                            "重复工具调用复核停止：" + result["reason"]
+                        )
                         stop.set()
             elif value.get("tool_result") in platform_calls:
                 future = platform_calls[value["tool_result"]]
@@ -162,6 +170,8 @@ async def main():
                 "command": sys.executable,
                 "args": ["-m", "workbench.bridge"],
                 "env": {
+                    "PYTHONUTF8": "1",
+                    "PYTHONIOENCODING": "utf-8",
                     "WORKBENCH_BRIDGE_ENDPOINT": f"127.0.0.1:{port}",
                     "WORKBENCH_BRIDGE_TOKEN": bridge_token,
                     "WORKBENCH_BRIDGE_ROLE": request.get("bridge_role", "leader"),

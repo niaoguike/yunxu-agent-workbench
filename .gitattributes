@@ -1,0 +1,2 @@
+Dockerfile.browser text eol=lf
+scripts/personal-browser/*.sh text eol=lf

@@ -8,10 +8,13 @@ async def test_repeat_failure_guard_waits_for_native_interrupt_terminal(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("WORKBENCH_CHANNEL_TEST_TOKEN", "must-not-inherit")
+    monkeypatch.setenv("WORKBENCH_GOOGLE_CLIENT_SECRET", "must-not-inherit")
+    monkeypatch.setenv("WORKBENCH_VAULT_KEY", "must-not-inherit")
     import sys
 
     script = """import sys,json,os
-assert not any(k.startswith("WORKBENCH_CHANNEL_") for k in os.environ)
+assert not any(k.startswith(("WORKBENCH_CHANNEL_", "WORKBENCH_GOOGLE_")) or k == "WORKBENCH_VAULT_KEY" for k in os.environ)
+assert sys.stdin.encoding.lower() == "utf-8"
 from pathlib import Path
 assert Path(os.environ['PATH'].split(os.pathsep)[0]).resolve()==Path(sys.executable).parent.resolve()
 def send(x): print(json.dumps(x),flush=True)
@@ -323,3 +326,44 @@ for line in sys.stdin:
                     self.assertEqual(
                         sum(event.kind == "approval" for event in events), 1
                     )
+
+
+async def test_native_mcp_approval_surfaces_and_unknown_forms_decline(tmp_path):
+    import sys
+
+    script = """import json,sys
+
+def send(x): print(json.dumps(x),flush=True)
+for line in sys.stdin:
+ m=json.loads(line);method=m.get('method')
+ if method=='initialize':send({'id':m['id'],'result':{}})
+ elif method=='thread/start':send({'id':m['id'],'result':{'thread':{'id':'mcp-thread'}}})
+ elif method=='turn/start':
+  send({'id':m['id'],'result':{'turn':{'id':'mcp-turn'}}})
+  send({'id':900,'method':'mcpServer/elicitation/request','params':{'serverName':'workbench','threadId':'mcp-thread','mode':'form','_meta':{'codex_approval_kind':'mcp_tool_call'},'message':'Approve goal_create','requestedSchema':{'type':'object','properties':{}}}})
+ elif m.get('id')==900:
+  assert m['result']['action']=='accept'
+  send({'id':901,'method':'mcpServer/elicitation/request','params':{'serverName':'external','mode':'form','message':'Give credentials','requestedSchema':{}}})
+ elif m.get('id')==901:
+  assert m['result']['action']=='decline'
+  send({'method':'turn/completed','params':{'turn':{'id':'mcp-turn','status':'completed'}}})
+"""
+    (tmp_path / "app-server").write_text(script, encoding="utf-8")
+    manager = RuntimeManager(
+        SimpleNamespace(
+            runner="trusted-local", codex_command=sys.executable, approval_timeout=2
+        )
+    )
+    events = []
+    async with asyncio.timeout(15):
+        async for event in manager.execute(
+            RunRequest("mcp-approval", "codex", str(tmp_path), "protocol only")
+        ):
+            events.append(event)
+            if event.kind == "approval":
+                assert event.data["tool"] == "mcpServer/elicitation/request"
+                await manager.approve(
+                    "mcp-approval", event.data["approval_id"], "accept"
+                )
+    assert sum(e.kind == "approval" for e in events) == 1
+    assert events[-1].data["status"] == "completed"

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import shutil
+from fastapi import HTTPException
 
 from .files import digest, inventory, safe_path
 from .runtime import RunRequest
@@ -404,8 +405,12 @@ class Workflow:
                     platform_bridge=True,
                     bridge_role="worker"
                     if task["member_id"]
+                    else "personal"
+                    if getattr(self, 'connections', None) and self.store.one('SELECT owner_id FROM personal_assistants WHERE task_id=?',(task_id,))
                     else "leader"
                     if task["allow_collaboration"]
+                    else "goal"
+                    if getattr(self, 'goals', None) and self.store.one('SELECT id FROM goal_events WHERE task_id=?',(task_id,))
                     else "solo",
                     adaptive_loop_review=True,
                 )
@@ -476,7 +481,7 @@ class Workflow:
                                     event.data.get("arguments", {}),
                                 )
                                 result = {"ok": True, "result": result}
-                            except (ValueError, KeyError, TypeError) as error:
+                            except (ValueError, KeyError, TypeError, HTTPException) as error:
                                 result = {"ok": False, "error": str(error)}
                             await self.runtime.respond_tool(
                                 run_id, event.data["call_id"], result

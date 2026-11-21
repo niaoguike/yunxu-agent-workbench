@@ -253,6 +253,23 @@ class CodexExecutor:
             ):
                 decision = await permission(method, message.get("params", {}))
                 await send({"id": message["id"], "result": {"decision": decision}})
+            elif method == "mcpServer/elicitation/request":
+                params = message.get("params", {})
+                metadata = params.get("_meta") or params.get("meta") or {}
+                if (
+                    isinstance(metadata, dict)
+                    and metadata.get("codex_approval_kind") == "mcp_tool_call"
+                    and params.get("mode") in ("form", "openai/form", "openaiForm")
+                ):
+                    decision = await permission(method, params)
+                    action = "accept" if decision == "accept" else "decline"
+                else:
+                    action = "decline"
+                    emit(
+                        "diagnostic",
+                        message="Unsupported structured MCP input; approval was not granted",
+                    )
+                await send({"id": message["id"], "result": {"action": action}})
             else:
                 await send(
                     {

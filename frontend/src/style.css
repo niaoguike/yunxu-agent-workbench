@@ -671,3 +671,21 @@ pre {
   font: inherit;
   background: white;
 }
+.personal-home {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 32px;
+}
+.personal-home h1 { font-size: 30px; letter-spacing: -.5px; margin: 0 0 12px; }
+.personal-home > section { margin-top: 28px; }
+.personal-home article { background: #fff; border: 1px solid #dfe5df; border-radius: 12px; padding: 20px; margin: 16px 0; overflow-wrap: anywhere; }
+.personal-home form { display: grid; gap: 12px; margin: 16px 0; padding: 18px; border: 1px solid #dfe5df; border-radius: 10px; background: #fff; }
+.personal-home label { display: grid; gap: 6px; color: #526257; }
+.personal-home input, .personal-home textarea, .personal-home select { width: 100%; padding: 10px 12px; border: 1px solid #ccd8cd; border-radius: 6px; background: white; color: #25302c; }
+.personal-home textarea { min-height: 86px; resize: vertical; }
+.personal-home button { margin: 4px 6px 4px 0; }
+.personal-home form > button { justify-self: start; background: #315f49; color: #fff; }
+.personal-home pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.personal-home [role="alert"] { color: #9a3d2d; padding: 12px; border-radius: 6px; background: #fff0e9; }
+.personal-home details { margin: 16px 0; }
+@media(max-width: 700px) { .personal-home { padding: 20px 16px; } }

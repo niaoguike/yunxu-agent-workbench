@@ -396,9 +396,17 @@ class Routines:
                 "SELECT * FROM channel_threads WHERE connection_id=? AND external_reply=?",
                 (connection_id, reply_to),
             )
+        personal = None
+        if getattr(self, "personal", None):
+            personal = self.store.one(
+                "SELECT task_id FROM personal_assistants WHERE project_id=?",
+                (connection["project_id"],),
+            )
         with self.store.transaction():
             task_id = (
-                mapped["task_id"]
+                personal["task_id"]
+                if personal
+                else mapped["task_id"]
                 if mapped
                 else self.new_task(
                     connection["project_id"],

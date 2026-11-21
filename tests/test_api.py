@@ -257,7 +257,9 @@ def test_native_compaction_digest_and_rebuilt_history(setup, enabled):
         async for event in original(request):
             yield event
             if event.kind == "session":
-                yield RuntimeEvent("context_compacted", {"summary": "Done: report; pending: publish."})
+                yield RuntimeEvent(
+                    "context_compacted", {"summary": "Done: report; pending: publish."}
+                )
 
     engine.execute = compacting
     item = task(client, project)
@@ -285,7 +287,10 @@ def test_workflow_native_resume_sends_only_new_input(setup):
     first = wait_task(client, item["id"], {"waiting_confirmation"})
     # Exercise an outer-workflow continuation without the API's intentional
     # requirement-change/session-reset behavior.
-    client.app.state.store.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uid(), item["id"], "user", "Continue existing work", now()))
+    client.app.state.store.execute(
+        "INSERT INTO messages VALUES(?,?,?,?,?)",
+        (uid(), item["id"], "user", "Continue existing work", now()),
+    )
     client.portal.call(client.app.state.workflow.enqueue, item["id"])
     wait_task(client, item["id"], {"waiting_confirmation"})
     assert engine.requests[-1].session_id == first["session_id"]
@@ -301,7 +306,9 @@ def test_failed_compaction_preserves_result_and_rebuilds_next_session(setup):
     async def failing(request):
         async for event in original(request):
             if event.kind == "completed":
-                yield RuntimeEvent("context_compaction_failed", {"needs_rollover": True})
+                yield RuntimeEvent(
+                    "context_compaction_failed", {"needs_rollover": True}
+                )
             yield event
 
     engine.execute = failing
@@ -320,7 +327,10 @@ def test_memory_opt_in_and_skill_snapshot(setup):
     client, project, engine = setup
     client.post(
         f"/api/projects/{project['id']}/memories",
-        json={"category": "project", "content": "Use UTC timestamps" + "x" * 100 + "BODY_ONLY"},
+        json={
+            "category": "project",
+            "content": "Use UTC timestamps" + "x" * 100 + "BODY_ONLY",
+        },
     )
     skill = client.post(
         f"/api/projects/{project['id']}/extensions",
@@ -678,7 +688,8 @@ def test_cross_device_resume_survives_restart(tmp_path):
         assert second.get("/api/resume").status_code == 401
         assert second.post("/api/auth/login", json=credentials).status_code == 200
         assert second.get("/api/resume").json() == {
-            "task_id": item["id"], "project_id": project["id"]
+            "task_id": item["id"],
+            "project_id": project["id"],
         }
         assert second.get(f"/api/tasks/{item['id']}").status_code == 200
         assert (root / "notes.txt").read_text(encoding="utf-8") == "persistent file"
@@ -686,9 +697,84 @@ def test_cross_device_resume_survives_restart(tmp_path):
         second.cookies.set("workbench_session", cookie)
         assert second.get("/api/auth/me").status_code == 200
         second.cookies.clear()
-        second.post("/api/auth/register", json={**credentials, "email": "other@example.com"})
+        second.post(
+            "/api/auth/register", json={**credentials, "email": "other@example.com"}
+        )
         assert second.get("/api/resume").json() is None
         assert second.put(f"/api/resume/{item['id']}").status_code == 404
         second.post("/api/auth/login", json=credentials)
         second.delete(f"/api/projects/{project['id']}")
         assert second.get("/api/resume").json() is None
+
+
+def test_personal_and_goal_http_contract(setup):
+    client, project, engine = setup
+    home = client.get("/api/personal").json()
+    assert home["task"]["allow_collaboration"] == 1
+    assert home["task"]["permission_mode"] == "ask"
+    created = client.post(
+        "/api/goals",
+        json={
+            "project_id": project["id"],
+            "title": "演示",
+            "desired_outcome": "完成演示",
+            "success_criteria": ["运行通过"],
+        },
+    )
+    assert created.status_code == 201
+    goal = created.json()
+    path = "/api/goals/" + goal["id"]
+    assert (
+        client.post(
+            path + "/transition", json={"revision": 1, "status": "completed"}
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post(
+            path + "/transition",
+            json={
+                "revision": 1,
+                "status": "completed",
+                "evidence": {"0": "用户已检查报告"},
+            },
+        ).status_code
+        == 200
+    )
+    client.post("/api/auth/logout")
+    client.post(
+        "/api/auth/register",
+        json={"email": "second@example.com", "password": "safe-password-456"},
+    )
+    assert client.get(path).status_code == 404
+    assert client.get("/api/personal").json()["task_id"] != home["task_id"]
+
+
+def test_interrupted_goal_requires_explicit_acknowledgement(setup):
+    client, project, _ = setup
+    goal = client.post(
+        "/api/goals",
+        json={
+            "project_id": project["id"],
+            "title": "恢复",
+            "desired_outcome": "安全恢复",
+            "success_criteria": ["无重复执行"],
+        },
+    ).json()
+    store = client.app.state.store
+    task_id = task(client, project)["id"]
+    store.execute(
+        "INSERT INTO goal_events(id,goal_id,event_key,kind,content,status,task_id,created_at) VALUES('unknown',?,'key','user.input','','unknown',?,?)",
+        (goal["id"], task_id, time.time()),
+    )
+    path = f"/api/goals/{goal['id']}/events/unknown/acknowledge"
+    store.execute("UPDATE tasks SET status='running' WHERE id=?", (task_id,))
+    assert client.post(path, json={"content": "已核查"}).status_code == 409
+    store.execute("UPDATE tasks SET status='interrupted' WHERE id=?", (task_id,))
+    assert (
+        client.post(
+            path, json={"content": "未发送任何外部操作，只完成了草稿"}
+        ).status_code
+        == 200
+    )
+    assert client.post(path, json={"content": "重复核查"}).status_code == 404

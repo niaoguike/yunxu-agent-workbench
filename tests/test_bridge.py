@@ -46,8 +46,8 @@ for line in sys.stdin:
   with socket.create_connection((host,int(port))) as c:
    c.sendall(b'{"token":"incorrect","name":"list_workers","arguments":{}}\\n')
    assert json.loads(c.makefile('rb').readline())['ok'] is False
-  requests=[{'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2025-03-26'}},{'jsonrpc':'2.0','id':2,'method':'tools/list'},{'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'list_workers','arguments':{}}}]
-  r=subprocess.run([server['command'],*server['args']],input=''.join(json.dumps(x)+'\\n' for x in requests),text=True,capture_output=True,env={**os.environ,**server['env']},timeout=10)
+  requests=[{'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2025-03-26'}},{'jsonrpc':'2.0','id':2,'method':'tools/list'},{'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'list_workers','arguments':{'probe':'中文'}}}]
+  r=subprocess.run([server['command'],*server['args']],input=''.join(json.dumps(x,ensure_ascii=False)+'\\n' for x in requests),text=True,encoding='utf-8',capture_output=True,env={**os.environ,**server['env']},timeout=10)
   assert r.returncode==0,r.stderr
   responses=[json.loads(x) for x in r.stdout.splitlines()]
   assert 'create_worker' in {x['name'] for x in responses[1]['result']['tools']}
@@ -76,6 +76,7 @@ for line in sys.stdin:
             events.append(event)
             if event.kind == "platform_tool":
                 assert event.data["name"] == "list_workers"
+                assert event.data["arguments"]["probe"] == "中文"
                 await manager.respond_tool(
                     "bridge-fixture",
                     event.data["call_id"],

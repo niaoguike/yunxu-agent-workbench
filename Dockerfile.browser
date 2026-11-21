@@ -1,0 +1,8 @@
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends chromium xvfb python3 python3-websocket ca-certificates fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
+RUN useradd --create-home --uid 1000 browser && mkdir /home/browser/profile && chown browser:browser /home/browser/profile
+COPY scripts/personal-browser/control.py /opt/browser.py
+COPY scripts/personal-browser/start.sh /opt/start.sh
+USER browser
+ENV DISPLAY=:99
+CMD ["sh", "/opt/start.sh"]

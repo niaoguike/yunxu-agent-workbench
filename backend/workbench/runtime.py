@@ -83,8 +83,7 @@ class RuntimeManager:
                 except OSError as error:
                     reason = str(error)
             return [
-                dict(engine=e, available=False, reason=reason)
-                for e in EXECUTOR_TYPES
+                dict(engine=e, available=False, reason=reason) for e in EXECUTOR_TYPES
             ]
         return [
             dict(
@@ -145,8 +144,11 @@ class RuntimeManager:
             worker_env = {
                 key: value
                 for key, value in os.environ.items()
-                if not key.startswith("WORKBENCH_CHANNEL_")
+                if not key.startswith(("WORKBENCH_CHANNEL_", "WORKBENCH_GOOGLE_"))
+                and key != "WORKBENCH_VAULT_KEY"
             }
+            worker_env["PYTHONUTF8"] = "1"
+            worker_env["PYTHONIOENCODING"] = "utf-8"
             if self.settings.runner == "trusted-local":
                 # Native shells must see the same Python toolchain as the platform.
                 worker_env["PATH"] = (
